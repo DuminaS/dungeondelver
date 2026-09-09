@@ -9,8 +9,7 @@ const scriptTags = (src.match(/<script[\s\S]*?<\/script>/g) ?? []).map((s) =>
   s.replace(/\s+crossorigin/g, ""),
 );
 
-const titleMatch = src.match(/<title>([\s\S]*?)<\/title>/);
-const title = titleMatch ? titleMatch[1] : "DEPTHDIVER";
+const title = "DEPTHDIVER";
 
 const out = `<title>${title}</title>
 <style>
