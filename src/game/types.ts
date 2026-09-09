@@ -1,0 +1,209 @@
+import { Hex } from "../core/hex";
+
+export type AbilityKey = "STR" | "DEX" | "CON" | "INT" | "WIS" | "CHA";
+export const ABILITIES: AbilityKey[] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+
+export type Abilities = Record<AbilityKey, number>;
+
+export function mod(score: number): number {
+  return Math.floor((score - 10) / 2);
+}
+
+export type ClassId = "fighter" | "rogue" | "ranger" | "cleric";
+export type RaceId = "human" | "dwarf" | "elf" | "halforc";
+
+export interface RaceDef {
+  id: RaceId;
+  name: string;
+  mods: Partial<Abilities>;
+  speed: number;
+  blurb: string;
+  /** passive trait ids granted by race */
+  traits: string[];
+}
+
+export interface ClassDef {
+  id: ClassId;
+  name: string;
+  hitDie: number;
+  primary: AbilityKey;
+  /** starting AC model */
+  baseArmor: number; // added to 10 + dexMod(capped)
+  dexCap: number; // max dex mod counted toward AC
+  weapon: WeaponDef;
+  skills: string[];
+  blurb: string;
+  /** feature ids unlocked at [classLevel] */
+  features: Record<number, string[]>;
+}
+
+export interface WeaponDef {
+  name: string;
+  dice: string; // "1d8"
+  ranged: boolean;
+  range: number; // hexes; 1 = melee
+  ability: AbilityKey; // stat used for attack/damage
+  twoHanded?: boolean;
+}
+
+export interface TraitDef {
+  id: string;
+  name: string;
+  kind: "boon" | "bane" | "quirk";
+  text: string;
+  apply?: (c: Character) => void; // static stat edits at generation
+}
+
+export interface Character {
+  id: string;
+  name: string;
+  raceId: RaceId;
+  classId: ClassId;
+  level: number;
+  xp: number;
+  abilities: Abilities;
+  traitIds: string[];
+  // derived / mutable
+  maxHp: number;
+  hp: number;
+  speed: number;
+  ac: number;
+  weapon: WeaponDef;
+  featureIds: string[];
+  skills: string[];
+  // run stats
+  kills: number;
+  floorsSurvived: number;
+  injuries: string[];
+  // per-encounter resources
+  secondWindUsed?: boolean;
+  markTargetId?: string | null;
+}
+
+export type Team = "player" | "enemy";
+
+export type ConditionKind =
+  | "prone"
+  | "dodging"
+  | "disengaged"
+  | "blessed"
+  | "poisoned"
+  | "burning"
+  | "bleeding";
+
+export interface Condition {
+  kind: ConditionKind;
+  /** rounds left; -1 = until removed explicitly */
+  duration: number;
+  amount?: number;
+}
+
+export interface Unit {
+  id: string;
+  team: Team;
+  name: string;
+  pos: Hex;
+  // stats snapshot
+  maxHp: number;
+  hp: number;
+  ac: number;
+  speed: number;
+  toHit: number;
+  weapon: WeaponDef;
+  damageBonus: number;
+  initiative: number;
+  elevationBonus?: number;
+  // linkage
+  charId?: string; // for player units
+  archetype?: EnemyArchetype;
+  tags: string[];
+  conditions: Condition[];
+  // per-turn budget
+  movedThisTurn: number;
+  actionUsed: boolean;
+  bonusUsed: boolean;
+  reactionUsed: boolean;
+  dashed: boolean;
+  // state
+  alive: boolean;
+  downed: boolean;
+  deathSuccess: number;
+  deathFail: number;
+  kills: number;
+  causeOfDeath?: string;
+  // abilities available (feature ids) for player units
+  featureIds: string[];
+  secondWindUsed: boolean;
+  surgeUsed: boolean;
+  cureUses: number;
+  markTargetId?: string | null;
+  sneakUsedThisTurn?: boolean;
+  colossusUsedThisTurn?: boolean;
+  luckUsedThisFloor?: boolean;
+  cowardTriggered?: boolean;
+  relentlessUsed?: boolean;
+  intent?: UnitIntent | null;
+}
+
+export interface UnitIntent {
+  kind: "attack" | "move" | "wait";
+  targetId?: string;
+  toHex?: Hex;
+  note: string;
+}
+
+export type EnemyArchetype = "brute" | "archer" | "skirmisher" | "elite";
+
+export interface MonsterDef {
+  id: string;
+  name: string;
+  archetype: EnemyArchetype;
+  hp: number;
+  ac: number;
+  toHit: number;
+  weapon: WeaponDef;
+  damageBonus: number;
+  speed: number;
+  initiative: number;
+  tags: string[];
+  tier: number;
+  /** special: burst hazard on death */
+  onDeath?: "gas";
+}
+
+export type ObjectiveKind = "slay" | "extract";
+
+export interface Objective {
+  kind: ObjectiveKind;
+  description: string;
+  /** for extract: hexes that count */
+  extractHexes?: Hex[];
+}
+
+export type FloorKind = "combat" | "elite" | "extraction";
+
+export interface FloorCandidate {
+  kind: FloorKind;
+  depth: number;
+  biome: string;
+  threat: number; // 1..5
+  modifiers: string[];
+  seedTag: string;
+  label: string;
+  blurb: string;
+}
+
+export interface RunState {
+  seed: string;
+  guildName: string;
+  party: Character[];
+  graveyard: { name: string; epitaph: string; depth: number; cause: string }[];
+  depth: number;
+  gold: number;
+  bankedGold: number;
+  xpPool: number; // shown but xp is per-character
+  inventory: string[]; // salvaged weapon names for flavor
+  nextFloors: FloorCandidate[];
+  over: boolean;
+  outcome?: "wipe" | "retired";
+}

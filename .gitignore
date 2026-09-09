@@ -40,3 +40,8 @@ coverage/
 # sim output
 sim-output/
 *.csv
+
+# build output
+dist/
+dist-single/
+.shots/

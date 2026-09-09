@@ -2,48 +2,50 @@
 
 From nothing to 1.0. Each phase ends with something you can *play*.
 
+> **Status (build v0.1.x):** Phase 0 done, Phase 1 done, Phase 2 partially done. Playable slice deployed — see [PLAYTEST.md](PLAYTEST.md).
+
 ---
 
-## Phase 0 — Foundations (engine skeleton)
+## Phase 0 — Foundations (engine skeleton) — ✅ done
 
 Goal: a deterministic simulation core with no content, plus a hex renderer.
 
-- [ ] Project scaffold: TypeScript + Vite, ESLint/Prettier, Vitest.
-- [ ] `rng.ts` — seeded PRNG (mulberry32/xoshiro), `int/float/pick/weighted/shuffle/dice("2d6+1")`. Everything random routes through an injected RNG instance.
-- [ ] `hex.ts` — cube/axial math, distance, neighbors, range, line (supercover), ring/spiral, rotation.
-- [ ] `grid.ts` — `HexGrid` with tiles, terrain, elevation, hazards, occupancy; A* pathfinding over the movement-cost function; LOS + cover per [COMBAT.md](COMBAT.md §2).
-- [ ] Canvas 2D renderer: draw grid, elevation shading, terrain, hazards, entities, overlays (reachable hexes, threat range, path preview). Pan/zoom. DOM HUD overlay skeleton.
-- [ ] Headless test harness: build a grid from ASCII art, assert pathfinding/LOS.
+- [~] Project scaffold: TypeScript + Vite + Vitest. (ESLint/Prettier: not yet)
+- [x] `rng.ts` — seeded PRNG (mulberry32/xoshiro), `int/float/pick/weighted/shuffle/dice("2d6+1")`. Everything random routes through an injected RNG instance.
+- [x] `hex.ts` — cube/axial math, distance, neighbors, range, line (supercover), ring/spiral, rotation.
+- [x] `grid.ts` — `HexGrid` with tiles, terrain, elevation, hazards, occupancy; A* pathfinding over the movement-cost function; LOS + cover per [COMBAT.md](COMBAT.md §2).
+- [~] Canvas 2D renderer: grid, elevation shading, terrain, hazards, entities, overlays (reachable, attackable, path preview, enemy intent). (threat-range heat, pan/zoom: not yet)
+- [~] Headless test harness: vitest suite incl. multi-seed full-run sim + pathfinding invariants. (ASCII-art grid fixtures: not yet)
 
 ## Phase 1 — Tactical vertical slice
 
 Goal: one hand-made encounter, fully playable, no meta.
 
-- [ ] `types.ts` — Entity, Stats, Condition, Action, Effect, EncounterState.
-- [ ] Character derived stats (HP/AC/init/speed/prof) from a raw stat block.
-- [ ] Turn engine: initiative, round loop, action economy (Move/Action/Bonus/Reaction), condition ticking, objective checks.
-- [ ] Action resolvers: Attack (d20 vs AC, crit, damage), Move (with OA), Dash, Disengage, Dodge, Shove, Help.
-- [ ] Reaction system: Opportunity Attacks.
-- [ ] Hazards: acid, spikes, fire+Burning, fall damage, forced movement.
-- [ ] Enemy AI v1: utility scorer (COMBAT.md §8) with Brute + Archer profiles; intent telegraphing.
-- [ ] HUD: unit cards, action bar, hit-chance & damage preview on hover, combat log, end-turn.
-- [ ] Win/lose on a single **Slay** objective. Restart.
+- [x] `types.ts` — Entity, Stats, Condition, Action, Effect, EncounterState.
+- [x] Character derived stats (HP/AC/init/speed/prof) from a raw stat block.
+- [x] Turn engine: initiative, round loop, action economy (Move/Action/Bonus/Reaction), condition ticking, objective checks.
+- [x] Action resolvers: Attack (d20 vs AC, crit, damage), Move (with OA), Dash, Disengage, Dodge, Shove, Help.
+- [x] Reaction system: Opportunity Attacks.
+- [x] Hazards: acid, spikes, fire+Burning, fall damage, forced movement.
+- [x] Enemy AI v1: utility scorer (COMBAT.md §8) with Brute + Archer profiles; intent telegraphing.
+- [~] HUD: unit cards, action bar, combat log, end-turn. (hit-chance/damage preview computed but not surfaced on hover yet)
+- [x] Win/lose on a single **Slay** objective. Restart.
 - [ ] **Playtest gate:** is a single fight fun for 5 minutes?
 
 ## Phase 2 — Content pipeline + a delve
 
 Goal: data-driven content, procedural floors, a multi-floor run (no meta yet).
 
-- [ ] Data tables (TS modules, typed): races, classes (L1–5), traits, backgrounds, monsters (tier 1–2), weapons/armor/trinkets/consumables, floor types.
-- [ ] Character generator: roll race/stats/class/background/traits → full level-1 chaindiver with kit.
-- [ ] Draft screen: roll `N`, pick loop with full re-roll, mulligan, synergy panel.
-- [ ] Arena generator: biome templates, elevation, choke carving, objective placement, enemy budgeting, hazard scatter, validation pass (COMBAT.md §7).
-- [ ] Objectives: Slay, Survive, Extract, Hold, Escort.
-- [ ] Deployment phase.
-- [ ] Descent map: reveal 2–3 tagged candidates, threat rating, modifiers; pick → next floor.
-- [ ] Aftermath: loot, per-chaindiver XP + level-up (choose-your-class prompt), downed/death-saves/permadeath, Injuries.
-- [ ] Salvage: corpse caches, carry capacity, strip action.
-- [ ] Run-end (wipe) screen.
+- [x] Data tables (TS modules, typed): races, classes (L1–5), traits, backgrounds, monsters (tier 1–2), weapons/armor/trinkets/consumables, floor types.
+- [x] Character generator: roll race/stats/class/background/traits → full level-1 chaindiver with kit.
+- [~] Draft screen: roll `N`, pick loop with full re-roll. (mulligan, synergy panel: not yet)
+- [~] Arena generator: elevation ridges, terrain/hazard scatter, deploy zone, budgeted enemy placement, objective placement. (explicit choke carving + winnability validation pass: not yet)
+- [~] Objectives: Slay, Survive, Extract, Hold, Escort.
+- [x] Deployment phase.
+- [x] Descent map: reveal 2–3 tagged candidates, threat rating, modifiers; pick → next floor.
+- [~] Aftermath: loot, per-chaindiver XP + auto level-up, downed/death-saves/permadeath, weapon salvage. (choose-your-class prompt, persistent Injuries: not yet)
+- [~] Salvage: corpse caches, carry capacity, strip action.
+- [x] Run-end (wipe) screen.
 - [ ] **Playtest gate:** is a 6–10 floor run tense and readable?
 
 ## Phase 3 — The Guild (meta loop)

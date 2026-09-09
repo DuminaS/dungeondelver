@@ -25,23 +25,35 @@ Fire Emblem / D&D-style tactical combat on procedurally generated hex arenas, wr
 
 ## Repo status
 
-This repository currently contains **design documentation only**. No engine code yet.
+**V1 playtest slice is live.** Tactical core + a thin run wrapper. The bulk of the design bible (Guild meta, multiclass, bosses, salvage economy) is still to come — see [docs/ROADMAP.md](docs/ROADMAP.md).
+
+- **Play:** `https://duminas.github.io/dungeondelver/` (GitHub Pages, auto-deploys from `main`).
+- **Local:** `npm install && npm run dev`.
+- **What's in / out of V1:** [docs/PLAYTEST.md](docs/PLAYTEST.md).
+- Build version is pinned in the **bottom-right corner** of every screen.
 
 | Document | Contents |
 |---|---|
 | [DESIGN.md](DESIGN.md) | The full design bible — every system, expanded and specified. Start here. |
+| [docs/PLAYTEST.md](docs/PLAYTEST.md) | What the V1 build contains, how to run it, what to report. |
 | [docs/COMBAT.md](docs/COMBAT.md) | Tactical layer: hex grid, action economy, combat math, hazards, LOS/cover. |
 | [docs/PROGRESSION.md](docs/PROGRESSION.md) | Leveling to `W` (cap 20), multiclassing, subclasses, feats, Guild meta-upgrades. |
 | [docs/CONTENT.md](docs/CONTENT.md) | Content tables: races, classes, traits, monsters, floor types, loot. |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Build phases from prototype to 1.0. |
 
-## Intended tech (proposed, not final)
+## Tech
 
-- **TypeScript + Vite**, zero UI framework for the arena.
-- **Canvas 2D** hex renderer; DOM overlay for HUD/menus.
-- Pure, seeded, deterministic simulation core (`rng` → everything) so runs are replayable and testable headless.
-- `localStorage` for the Guild/meta save; single JSON blob, versioned.
-- No backend for v1.
+- **TypeScript + Vite**, zero UI framework. **Canvas 2D** hex renderer; DOM overlay for HUD/menus.
+- Pure, seeded, deterministic simulation core (`src/core/rng.ts` → everything) — runs are replayable and testable headless (`npm test` plays multi-seed runs to completion).
+- `localStorage` for the Barracks/meta save; versioned JSON blob.
+- No backend.
+
+```
+src/core/    rng · hex math · grid + A* pathfinding + LOS/cover
+src/game/    types · data tables · character gen · encounter engine · enemy AI · arena gen · run/descent
+src/ui/      canvas board renderer · localStorage meta
+src/main.ts  screen state machine + DOM screens
+```
 
 ## License
 

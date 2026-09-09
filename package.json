@@ -1,0 +1,24 @@
+{
+  "name": "dungeondelver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DEPTHDIVER — roguelike hex-grid tactics. Playtest build.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:web": "tsc --noEmit && vite build",
+    "build:single": "tsc --noEmit && vite build --mode single",
+    "build:artifact": "vite build --mode single && node scripts/make-artifact.mjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-singlefile": "^2.0.3",
+    "vitest": "^2.1.4"
+  }
+}
