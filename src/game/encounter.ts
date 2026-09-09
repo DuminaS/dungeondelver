@@ -259,6 +259,33 @@ export class Encounter {
     return this.grid.reachable(u.pos, this.moveBudget(u), this.occupied(u));
   }
 
+  /**
+   * UI helper (no state change): every hex a living enemy could reach and
+   * then attack into next turn — the board's "don't stand here" wash.
+   */
+  threatenedHexes(): Set<string> {
+    const out = new Set<string>();
+    const tiles = this.grid.all();
+    for (const e of this.units.filter((u) => u.team === "enemy" && u.alive && !u.downed)) {
+      const reach = this.grid.reachable(e.pos, e.speed, this.occupied(e));
+      const from = [key(e.pos), ...reach.keys()].map((k) => {
+        const [q, r] = k.split(",").map(Number);
+        return { q, r };
+      });
+      const rng = e.weapon.range;
+      for (const f of from) {
+        if (rng === 1) {
+          for (const n of neighbors(f)) out.add(key(n));
+        } else {
+          for (const t of tiles) {
+            if (distance(f, { q: t.q, r: t.r }) <= rng) out.add(key({ q: t.q, r: t.r }));
+          }
+        }
+      }
+    }
+    return out;
+  }
+
   pathTo(u: Unit, h: Hex): Hex[] | null {
     return this.grid.findPath(u.pos, h, this.occupied(u));
   }

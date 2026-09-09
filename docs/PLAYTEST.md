@@ -35,6 +35,8 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 
 Guild creation & upgrades · Charters · Covenants · multiclass / subclasses / feats · gear beyond the starting weapon · injuries persisting between runs · bosses · Rest/Market/Shrine/Vault floors · floor modifiers doing anything · sound · animation beyond redraws · mobile layout polish.
 
+The interface language (palette, icon set, label map, board layers) is documented in [UI.md](UI.md).
+
 ## Controls
 
 - **Deploy:** click a green tile per fighter, or *Auto-deploy*.

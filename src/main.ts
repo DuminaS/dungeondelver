@@ -1,12 +1,12 @@
 import "./style.css";
 import { Hex, key } from "./core/hex";
-import { Character } from "./game/types";
-import { statLine } from "./game/character";
-import { CLASSES, FEATURES, RACES, TRAITS } from "./game/data";
-import { Run, EncounterReport, PARTY_SIZE, DRAFT_POOL_SIZE } from "./game/descent";
+import { AbilityKey, ABILITIES, Character, Unit } from "./game/types";
+import { CLASSES, RACES, TRAITS } from "./game/data";
+import { Run, EncounterReport, PARTY_SIZE } from "./game/descent";
 import { Encounter } from "./game/encounter";
 import { BoardView } from "./ui/render";
 import { loadMeta, Meta, recordRun } from "./ui/meta";
+import { CONDITION_ICON, icon, logStyle, roleIcon, stat } from "./ui/icons";
 
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
@@ -21,7 +21,6 @@ let board: BoardView | null = null;
 let report: EncounterReport | null = null;
 let meta: Meta = loadMeta();
 
-// encounter interaction state
 let pendingFeature: { id: string; needs: "ally" | "enemy" | "none" } | null = null;
 let enemyTimer: number | null = null;
 
@@ -31,42 +30,48 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
-function traitTag(id: string): string {
-  const t = TRAITS[id];
-  if (!t) return "";
-  return `<span class="tag ${t.kind}" title="${esc(t.text)}">${esc(t.name)}</span>`;
+function attrChip(k: AbilityKey, v: number, primary: boolean): string {
+  const tone = v >= 15 ? "good" : v <= 8 ? "bad" : "";
+  return `<div class="attr ${tone} ${primary ? "key" : ""}"><i>${k}</i>${v}</div>`;
+}
+
+function weaponLabel(c: Character): string {
+  return `${c.weapon.dice}${c.weapon.ranged ? `·r${c.weapon.range}` : ""}`;
 }
 
 function characterCard(c: Character, opts: { pick?: boolean } = {}): string {
   const cls = CLASSES[c.classId];
   const race = RACES[c.raceId];
-  const feats = [...new Set([...c.featureIds])]
-    .filter((f) => FEATURES[f])
-    .map((f) => `<span class="tag" title="${esc(FEATURES[f].text)}">${esc(FEATURES[f].name)}</span>`)
-    .join(" ");
+  const traits = c.traitIds
+    .map((id) => {
+      const t = TRAITS[id];
+      return t ? `<span class="tag ${t.kind}" title="${esc(t.text)}">${esc(t.name)}</span>` : "";
+    })
+    .join("");
   return `
-  <div class="card ${opts.pick ? "pick" : ""}" data-id="${c.id}">
-    <div class="spread">
-      <span class="name">${esc(c.name)}</span>
-      <span class="sub">Lv ${c.level}</span>
+  <div class="ucard ${opts.pick ? "ucard--pick" : "ucard--player"}" data-id="${c.id}" title="${esc(cls.blurb)}">
+    <div class="ucard__head">
+      <div>
+        <div class="ucard__name">${esc(c.name)}</div>
+        <div class="ucard__kind">${roleIcon(c.classId)} ${esc(race.name)} ${esc(cls.name)}</div>
+      </div>
+      <span class="ucard__lvl">L${c.level}</span>
     </div>
-    <div class="sub">${esc(race.name)} ${esc(cls.name)} · HP ${c.hp}/${c.maxHp} · AC ${c.ac} · Spd ${c.speed} · ${esc(c.weapon.name)} ${esc(c.weapon.dice)}${c.weapon.ranged ? ` (rng ${c.weapon.range})` : ""}</div>
-    <div class="stat-grid">
-      ${statLine(c).split("  ").map((s) => { const [k, v] = s.split(" "); return `<span><b>${k}</b> ${v}</span>`; }).join("")}
+    <div class="statrow">
+      ${stat("hp", c.maxHp)}
+      ${stat("def", c.ac)}
+      ${stat("move", c.speed)}
+      ${stat("atk", weaponLabel(c))}
     </div>
-    <div>${c.traitIds.map(traitTag).join(" ") || '<span class="sub">no traits</span>'}</div>
-    ${feats ? `<div class="sub">${feats}</div>` : ""}
-    <div class="sub muted">${esc(cls.blurb)}</div>
+    <div class="attrs">
+      ${ABILITIES.map((k) => attrChip(k, c.abilities[k], k === cls.primary)).join("")}
+    </div>
+    ${traits ? `<div class="taglist">${traits}</div>` : `<div class="sub">— no traits —</div>`}
   </div>`;
 }
 
 function render(): void {
-  if (phase === "title") return renderTitle();
-  if (phase === "draft") return renderDraft();
-  if (phase === "descent") return renderDescent();
-  if (phase === "encounter") return renderEncounter();
-  if (phase === "aftermath") return renderAftermath();
-  if (phase === "gameover") return renderGameOver();
+  ({ title: renderTitle, draft: renderDraft, descent: renderDescent, encounter: renderEncounter, aftermath: renderAftermath, gameover: renderGameOver })[phase]();
 }
 
 // ---------------------------------------------------------------- title
@@ -75,40 +80,44 @@ function renderTitle(): void {
   const g = meta.graveyard.slice(0, 6);
   app.innerHTML = `
   <div class="wrap center col">
-    <h1>DEPTHDIVER</h1>
+    <div>
+      <div class="eyebrow">A roguelike descent</div>
+      <h1>Depthdiver</h1>
+    </div>
     <p class="muted">The Gordion Pit — the knot no one could untie, so they started cutting <i>down</i> through it.
-    Roll a warband of nobodies, draft ${PARTY_SIZE}, and see how deep they get before the Deep keeps them.</p>
+    Roll a warband of nobodies, draft ${PARTY_SIZE}, see how deep they get before the Deep keeps them.</p>
 
     <div class="panel col">
-      <label class="col" style="gap:4px">
-        <span class="sub">Run seed (leave blank for random)</span>
-        <div class="row">
-          <input type="text" id="seed" placeholder="ash-lantern-207" />
-          <button class="primary" id="start">Enter the Pit</button>
-        </div>
-      </label>
-      <p class="sub muted">Same seed + same picks = the same run, every time.</p>
+      <span class="eyebrow">Run seed — blank for random</span>
+      <div class="row">
+        <input type="text" id="seed" placeholder="ash-lantern-207" />
+        <button class="primary" id="start">${icon("extract")} Enter the Pit</button>
+      </div>
+      <p class="sub">Same seed + same picks = the same run.</p>
     </div>
 
-    <div class="panel">
-      <h2>How it works</h2>
-      <ul class="muted">
-        <li><b>Draft:</b> ${DRAFT_POOL_SIZE} recruits at a time. Pick one — the whole pool re-rolls. Repeat until you have ${PARTY_SIZE}.</li>
-        <li><b>Each floor</b> is a hex fight. On your turn a unit gets a <span class="kbd">Move</span>, an <span class="kbd">Action</span> and maybe a <span class="kbd">Bonus</span>. Click a hex to move, click a marked enemy to attack.</li>
-        <li>Enemy <span style="color:#a5342b">dashed red lines</span> show what each one will do next turn. High ground = better shots. Shove things into chasms.</li>
-        <li><b>Elevation dots</b> mark high tiles. <b>≈</b> acid · <b>^</b> spikes · <b>*</b> fire · <b>~</b> gas · <b>↑</b> extraction.</li>
-        <li><b>Permadeath.</b> Down isn't dead if an ally reaches you — but the run only banks what you carry to an Extraction Shaft.</li>
+    <div class="panel col">
+      <h2>Board key</h2>
+      <ul class="keyed">
+        <li>${icon("move")}<span><b>Move</b> — hover a blue tile, click to go. Leaving an enemy's reach draws a free hit unless you Disengage.</span></li>
+        <li>${icon("atk")}<span><b>Attack</b> — click an enemy inside the red brackets. High ground = better odds.</span></li>
+        <li>${icon("threat")}<span><b>Red wash</b> — tiles an enemy can hit next turn. <b>Dashed line + reticle</b> — that enemy's plan.</span></li>
+        <li>${icon("hazard")}<span><b>Hazards</b> — acid, spikes, fire, gas. <b>▲</b> marks high ground. <span style="color:var(--gold)">${icon("extract")}</span> is the way out.</span></li>
+        <li>${icon("skull")}<span><b>Permadeath.</b> Downed isn't dead if an ally reaches them. The run banks only what you carry to an Extraction Shaft.</span></li>
       </ul>
     </div>
 
     ${meta.runs.length ? `
-    <div class="panel">
+    <div class="panel col">
       <h2>The Gordion Pit — records</h2>
-      <p class="sub">Deepest: <b>Deep ${meta.bestDepth}</b> · Richest bank: <b>${meta.bestBanked}g</b> · Total banked: <b>${meta.totalBanked}g</b> · Runs: ${meta.runs.length}</p>
-      ${g.length ? `<h3 class="sub">Hall of the Dead</h3>${g.map((x) => `<div class="grave"><div class="n">${esc(x.name)} — Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub muted">${esc(x.cause)}</div></div>`).join("")}` : ""}
+      <div class="statrow">
+        ${stat("chevron", `Deep ${meta.bestDepth}`, "", "deepest")}
+        ${stat("loot", `${meta.bestBanked}g`, "gold", "richest bank")}
+        ${stat("loot", `${meta.totalBanked}g`, "", "total banked")}
+        ${stat("skull", meta.graveyard.length, "bad", "the dead")}
+      </div>
+      ${g.length ? `<h3>Hall of the Dead</h3>${g.map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}` : ""}
     </div>` : ""}
-
-    <p class="sub muted">build ${esc(VERSION)}</p>
   </div>`;
 
   document.getElementById("start")!.addEventListener("click", () => {
@@ -127,28 +136,24 @@ function renderDraft(): void {
   app.innerHTML = `
   <div class="wrap col">
     <div class="spread">
-      <h1>Draft your warband</h1>
+      <div><div class="eyebrow">Draft — pick ${need} more</div><h1>Your warband</h1></div>
       <span class="sub">seed <span class="kbd">${esc(run.state.seed)}</span></span>
     </div>
-    <p class="muted">Pick <b>${need}</b> more. Every pick re-rolls the whole pool — you can't wait for a card to come back.</p>
+    <p class="sub">Every pick re-rolls the whole pool. You can't wait for a card to come back.</p>
 
     <h2>Pool</h2>
-    <div class="cards" id="pool">
-      ${run.pool.map((c) => characterCard(c, { pick: true })).join("")}
-    </div>
+    <div class="cards" id="pool">${run.pool.map((c) => characterCard(c, { pick: true })).join("")}</div>
 
-    <h2>Warband (${run.state.party.length}/${PARTY_SIZE})</h2>
-    <div class="cards" id="party">
-      ${run.state.party.map((c) => characterCard(c)).join("") || '<p class="muted">empty</p>'}
-    </div>
+    <h2>Warband · ${run.state.party.length}/${PARTY_SIZE}</h2>
+    <div class="cards">${run.state.party.map((c) => characterCard(c)).join("") || '<p class="sub">— empty —</p>'}</div>
 
-    ${run.draftComplete ? `<div class="row"><button class="primary" id="descend">Descend into the Pit →</button></div>` : ""}
+    ${run.draftComplete ? `<div class="row"><button class="primary" id="descend">${icon("chevron")} Descend into the Pit</button></div>` : ""}
   </div>`;
 
   document.getElementById("pool")!.addEventListener("click", (e) => {
-    const cardEl = (e.target as HTMLElement).closest(".card") as HTMLElement | null;
-    if (!cardEl || !run) return;
-    run.pickRecruit(cardEl.dataset.id!);
+    const el = (e.target as HTMLElement).closest(".ucard") as HTMLElement | null;
+    if (!el || !run) return;
+    run.pickRecruit(el.dataset.id!);
     render();
   });
   document.getElementById("descend")?.addEventListener("click", () => {
@@ -163,48 +168,48 @@ function renderDraft(): void {
 function renderDescent(): void {
   if (!run) return;
   const st = run.state;
-  const cands = st.nextFloors;
   const extractionHere = st.depth > 0 && run.currentFloor?.kind === "extraction";
+  const kindIcon: Record<string, string> = { combat: icon("atk"), elite: icon("star"), extraction: icon("extract") };
 
   app.innerHTML = `
   <div class="wrap col">
     <div class="spread">
-      <h1>Deep ${st.depth} → choose the way down</h1>
-      <span class="sub">${esc(st.guildName)} · seed <span class="kbd">${esc(st.seed)}</span></span>
+      <div><div class="eyebrow">${esc(st.guildName)}</div><h1>Deep ${st.depth} — the way down</h1></div>
+      <span class="sub">seed <span class="kbd">${esc(st.seed)}</span></span>
     </div>
-    <div class="panel row" style="gap:22px">
-      <span>Carrying <b>${st.gold}g</b></span>
-      <span class="muted">Banked <b>${st.bankedGold}g</b></span>
-      <span class="muted">Party ${st.party.length}/${PARTY_SIZE}</span>
-      <span class="muted">Avg level ${run.avgPartyLevel().toFixed(1)}</span>
+    <div class="panel statrow">
+      ${stat("loot", `${st.gold}g`, "gold", "carrying")}
+      ${stat("check", `${st.bankedGold}g`, "", "banked — safe")}
+      ${stat("hp", `${st.party.length}/${PARTY_SIZE}`, "", "warband")}
+      ${stat("star", run.avgPartyLevel().toFixed(1), "", "avg level")}
     </div>
 
     ${extractionHere ? renderExtractionPanel() : ""}
 
     <div class="cards">
-      ${cands
-        .map(
-          (c, i) => `
-        <div class="card pick" data-idx="${i}">
-          <div class="spread"><span class="name">${esc(c.label)}</span><span class="tag threat">${"☠".repeat(c.threat)}</span></div>
-          <div class="sub">Deep ${c.depth} · ${esc(c.biome)} · ${c.kind}</div>
-          <div>${c.modifiers.map((m) => `<span class="tag">${esc(m)}</span>`).join(" ") || '<span class="sub muted">no visible modifiers</span>'}</div>
-          <div class="sub muted">${esc(c.blurb)}</div>
-        </div>`,
-        )
-        .join("")}
+      ${st.nextFloors.map((c, i) => `
+        <div class="ucard ucard--pick" data-idx="${i}">
+          <div class="ucard__head">
+            <div>
+              <div class="ucard__name">${esc(c.label)}</div>
+              <div class="ucard__kind">${kindIcon[c.kind] ?? ""} ${esc(c.biome)}</div>
+            </div>
+            <span class="pill pill--threat" title="threat">${icon("skull").repeat(c.threat)}</span>
+          </div>
+          ${c.modifiers.length ? `<div class="taglist">${c.modifiers.map((m) => `<span class="tag">${esc(m)}</span>`).join("")}</div>` : ""}
+          <div class="sub">${esc(c.blurb)}</div>
+        </div>`).join("")}
     </div>
 
     <h2>Warband</h2>
     <div class="cards">${st.party.map((c) => characterCard(c)).join("")}</div>
   </div>`;
 
-  document.querySelectorAll<HTMLElement>(".card[data-idx]").forEach((elm) => {
-    elm.addEventListener("click", () => {
-      const cand = run!.state.nextFloors[parseInt(elm.dataset.idx!, 10)];
+  document.querySelectorAll<HTMLElement>(".ucard[data-idx]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const cand = run!.state.nextFloors[parseInt(el.dataset.idx!, 10)];
       const e = run!.enterFloor(cand);
       if (e === null) {
-        // extraction floor: stay on descent screen, show the panel
         run!.currentFloor = cand;
         run!.state.depth = cand.depth;
         render();
@@ -215,34 +220,30 @@ function renderDescent(): void {
       render();
     });
   });
-
   wireExtractionButtons();
 }
 
 function renderExtractionPanel(): string {
   const st = run!.state;
   return `
-  <div class="panel col" style="border-color:#d8a24a">
-    <h2>Extraction Shaft</h2>
-    <p class="muted">Use it, send it, or lose it.</p>
+  <div class="panel panel--gold col">
+    <h2>${icon("extract")} Extraction Shaft</h2>
+    <p class="sub">Use it, send it, or lose it. Press on and the gold rides on your bodies.</p>
     <div class="row">
-      <button id="ex-bank" ${st.gold <= 0 ? "disabled" : ""}>Bank ${st.gold}g &amp; press on</button>
-      <button class="primary" id="ex-retire">Retire the warband (end run, cash out)</button>
+      <button id="ex-bank" ${st.gold <= 0 ? "disabled" : ""}>${icon("check")} Bank ${st.gold}g, press on</button>
+      <button class="primary" id="ex-retire">${icon("extract")} Retire — end the run</button>
     </div>
-    <p class="sub muted">Retire: every survivor gets out alive, everything banks with a depth bonus, and the run ends. Pressing on keeps the gold on your bodies — lose it all if you wipe before the next shaft.</p>
   </div>`;
 }
 
 function wireExtractionButtons(): void {
   document.getElementById("ex-bank")?.addEventListener("click", () => {
-    const moved = run!.bankGold();
-    flashToast(`Banked ${moved}g to the surface.`);
+    flashToast(`Banked ${run!.bankGold()}g to the surface.`);
     render();
   });
   document.getElementById("ex-retire")?.addEventListener("click", () => {
-    const { bonus, survivors } = run!.retire();
+    const { bonus } = run!.retire();
     report = { won: true, deaths: [], levelUps: [], loot: bonus, xpEach: 0 };
-    void survivors;
     finishRun();
   });
 }
@@ -253,12 +254,24 @@ function renderEncounter(): void {
   if (!enc) return;
   app.innerHTML = `
   <div class="wrap col">
-    <div class="spread">
+    <div class="enc-top">
       <h1>Deep ${enc.depth}</h1>
-      <span class="sub">${esc(enc.objective.description)}</span>
+      <span class="enc-obj">${icon(enc.objective.kind === "extract" ? "extract" : "atk")} ${esc(enc.objective.description)}</span>
     </div>
     <div class="enc-layout">
-      <div id="board-holder"><canvas id="board"></canvas></div>
+      <div>
+        <div id="board-holder"><canvas id="board"></canvas></div>
+        <div class="legend">
+          <span>${icon("move")} move</span>
+          <span>${icon("atk")} attack</span>
+          <span><span class="sw" style="background:rgba(198,90,58,.4)"></span> threatened</span>
+          <span><span class="sw" style="background:#93a14f"></span> acid</span>
+          <span><span class="sw" style="background:#9a9384"></span> spikes</span>
+          <span><span class="sw" style="background:#d5713a"></span> fire</span>
+          <span><span class="sw" style="background:#9276b6"></span> gas</span>
+          <span>▲ high ground</span>
+        </div>
+      </div>
       <div class="hud" id="hud"></div>
     </div>
     <div class="log" id="log"></div>
@@ -273,13 +286,10 @@ function renderEncounter(): void {
 
   window.addEventListener("resize", onResize);
   document.addEventListener("keydown", onKey);
-
   refreshEncounter();
 }
 
-function onResize(): void {
-  board?.fit();
-}
+function onResize(): void { board?.fit(); }
 function onKey(e: KeyboardEvent): void {
   if (phase !== "encounter" || !enc) return;
   if ((e.key === " " || e.key === "Enter") && enc.phase === "player") {
@@ -292,32 +302,22 @@ function onKey(e: KeyboardEvent): void {
 function teardownEncounter(): void {
   window.removeEventListener("resize", onResize);
   document.removeEventListener("keydown", onKey);
-  if (enemyTimer) {
-    clearTimeout(enemyTimer);
-    enemyTimer = null;
-  }
+  if (enemyTimer) { clearTimeout(enemyTimer); enemyTimer = null; }
 }
 
 function onHexHover(h: Hex | null): void {
   if (!enc || !board) return;
   board.pathPreview = [];
-  if (h && enc.phase === "player" && enc.active) {
-    const reach = board.reachable;
-    if (reach.has(key(h)) && !enc.unitAt(h)) {
-      const p = enc.pathTo(enc.active, h);
-      if (p) board.pathPreview = p;
-    }
+  if (h && enc.phase === "player" && enc.active && board.reachable.has(key(h)) && !enc.unitAt(h)) {
+    const p = enc.pathTo(enc.active, h);
+    if (p) board.pathPreview = p;
   }
   board.draw();
 }
 
 function onHexClick(h: Hex): void {
   if (!enc || !board) return;
-
-  if (enc.phase === "deploy") {
-    enc.placeNext(h);
-    return;
-  }
+  if (enc.phase === "deploy") { enc.placeNext(h); return; }
   if (enc.phase !== "player" || !enc.active) return;
   const u = enc.active;
   const target = enc.unitAt(h);
@@ -327,6 +327,8 @@ function onHexClick(h: Hex): void {
     if (target && (wantEnemy ? target.team === "enemy" : target.team === "player")) {
       if (pendingFeature.id === "__shove") {
         if (enc.shoveTargets(u).includes(target)) enc.shove(target.id);
+      } else if (pendingFeature.id === "__attack") {
+        if (enc.attackTargets(u).includes(target)) enc.doAttack(target.id);
       } else {
         enc.useFeature(pendingFeature.id, target.id);
       }
@@ -335,58 +337,47 @@ function onHexClick(h: Hex): void {
     refreshEncounter();
     return;
   }
-
   if (target && target.team === "enemy" && enc.attackTargets(u).includes(target)) {
     enc.doAttack(target.id);
     return;
   }
-  if (!target && board.reachable.has(key(h))) {
-    enc.moveTo(h);
-    return;
-  }
+  if (!target && board.reachable.has(key(h))) enc.moveTo(h);
 }
 
 function refreshEncounter(): void {
   if (!enc || !board || phase !== "encounter") return;
 
-  // overlays
   board.deploy = enc.phase === "deploy" ? enc.deployZone : [];
   if (enc.phase === "player" && enc.active) {
     board.reachable = enc.moveOptions(enc.active);
     board.attackable = new Set(enc.attackTargets(enc.active).map((t) => key(t.pos)));
+    board.threatened = enc.threatenedHexes();
   } else {
     board.reachable = new Map();
     board.attackable = new Set();
+    board.threatened = enc.phase === "deploy" ? enc.threatenedHexes() : new Set();
   }
   board.draw();
-
   renderHud();
   renderLog();
 
-  // phase transitions
   if (enc.phase === "won" || enc.phase === "lost") {
     teardownEncounter();
     const won = enc.phase === "won";
     setTimeout(() => {
       report = run!.resolveEncounter();
-      if (won && !run!.state.over) {
-        phase = "aftermath";
-      } else {
-        finishRun();
-        return;
-      }
-      render();
+      if (won && !run!.state.over) { phase = "aftermath"; render(); }
+      else finishRun();
     }, 700);
     return;
   }
-
   if (enc.phase === "enemy") {
     if (enemyTimer) clearTimeout(enemyTimer);
     enemyTimer = window.setTimeout(() => {
       if (!enc || enc.phase !== "enemy") return;
       enc.runEnemyTurn();
       refreshEncounter();
-    }, 520);
+    }, 500);
   }
 }
 
@@ -396,70 +387,88 @@ function renderHud(): void {
   const active = enc.active;
 
   if (enc.phase === "deploy") {
+    const placed = enc.units.filter((u) => u.team === "player").length;
     hud.innerHTML = `
-      <div class="panel col">
-        <h2>Deploy</h2>
-        <p class="sub muted">Click a green tile to place the next of your ${enc.toDeploy.length + enc.units.filter((u) => u.team === "player").length} fighters. You see every enemy and their intent before you commit.</p>
-        <button class="primary" id="auto">Auto-deploy the rest</button>
+      <div class="active-panel">
+        <div class="active-panel__name">${icon("extract")} Deploy — ${placed}/${placed + enc.toDeploy.length}</div>
+        <p class="sub">Click a green tile per fighter. Every enemy and its plan is already visible — the red wash is where they can reach you.</p>
+        <button class="primary" id="auto">${icon("check")} Auto-deploy</button>
       </div>
-      ${enemyList()}`;
-    document.getElementById("auto")?.addEventListener("click", () => {
-      enc!.autoDeploy();
-      refreshEncounter();
-    });
+      <div class="roster">${roster()}</div>`;
+    document.getElementById("auto")?.addEventListener("click", () => { enc!.autoDeploy(); refreshEncounter(); });
     return;
   }
 
-  const turnLabel =
-    enc.phase === "player" ? `Your turn — ${esc(active?.name ?? "")}` : enc.phase === "enemy" ? "Enemy turn…" : "";
-
+  const cls = enc.phase === "player" ? "turnbar--player" : "turnbar--enemy";
+  const who = enc.phase === "player" ? esc(active?.name ?? "") : "Enemy turn";
   hud.innerHTML = `
-    <div class="panel col">
-      <div class="spread"><h2 style="margin:0">${turnLabel}</h2><span class="pill">Round ${enc.round}</span></div>
-      ${active && active.team === "player" ? playerControls(active) : '<p class="sub muted">Watch the red lines.</p>'}
+    <div class="turnbar ${cls}">
+      <span class="turnbar__who">${who}</span>
+      <span class="turnbar__round">${icon("round")} Round ${enc.round}</span>
     </div>
-    <div class="col">${unitCards()}</div>`;
+    ${active && active.team === "player" ? activePanel(active) : `<p class="hint">${icon("threat")} Watch the reticles.</p>`}
+    <div class="roster">${roster()}</div>`;
 
   if (active && active.team === "player") wirePlayerControls();
 }
 
-function playerControls(u: import("./game/types").Unit): string {
+function activePanel(u: Unit): string {
   const e = enc!;
-  const moveLeft = e.moveBudget(u);
+  const move = e.moveBudget(u);
   const feats = e.featureButtons(u);
-  const shoveT = e.shoveTargets(u);
-  const b = (id: string, label: string, on: boolean, cls = "") =>
-    `<button data-act="${id}" class="${cls}" ${on ? "" : "disabled"}>${label}</button>`;
+  const shoveN = e.shoveTargets(u).length;
+  const canAttack = !u.actionUsed && e.attackTargets(u).length > 0;
+  const btn = (act: string, ic: Parameters<typeof icon>[0], label: string, on: boolean, cls = "") =>
+    `<button data-act="${act}" class="${cls}" ${on ? "" : "disabled"}>${icon(ic)} ${label}</button>`;
+
+  const conds = u.conditions
+    .map((c) => {
+      const m = CONDITION_ICON[c.kind];
+      return m ? `<span class="cond cond--${m.tone}" title="${m.label}">${icon(m.icon)}</span>` : "";
+    })
+    .join("");
 
   return `
-    <div class="budget">
-      <span class="${moveLeft <= 0 ? "used" : ""}">Move ${moveLeft}</span>
-      <span class="${u.actionUsed ? "used" : ""}">Action</span>
-      <span class="${u.bonusUsed ? "used" : ""}">Bonus</span>
-      ${u.conditions.map((c) => `<span class="pill">${c.kind}</span>`).join("")}
+  <div class="active-panel">
+    <div class="spread">
+      <span class="active-panel__name">${esc(u.name)}</span>
+      <span class="conds">${conds}</span>
     </div>
-    <div class="actionbar">
-      ${b("attack-hint", "Attack (click enemy)", !u.actionUsed && e.attackTargets(u).length > 0)}
-      ${b("dash", "Dash", !u.actionUsed)}
-      ${b("disengage", "Disengage", !u.actionUsed)}
-      ${b("dodge", "Dodge", !u.actionUsed)}
-      ${shoveT.length ? b("shove", `Shove (${shoveT.length})`, !u.actionUsed) : ""}
+    <div class="statrow">
+      ${stat("hp", `${u.hp}/${u.maxHp}`, u.hp <= u.maxHp * 0.25 ? "bad" : u.hp <= u.maxHp * 0.5 ? "warn" : "good")}
+      ${stat("def", u.ac)}
+      ${stat("atk", `${u.weapon.dice}${u.damageBonus >= 0 ? "+" : ""}${u.damageBonus}`)}
+      ${u.weapon.range > 1 ? stat("rng", u.weapon.range) : ""}
     </div>
-    ${feats.length ? `<div class="actionbar">${feats.map((f) => `<button data-feat="${f.id}" data-needs="${f.needsTarget}" ${f.enabled ? "" : "disabled"} title="${esc(f.text)}">${esc(f.name)}</button>`).join("")}</div>` : ""}
-    <div class="row" style="margin-top:6px">
-      <button class="primary" data-act="end">End turn</button>
-      <button class="danger" data-act="giveup">Abandon run</button>
+    <div class="pips">
+      <span class="pip pip--move ${move > 0 ? "pip--on" : "pip--spent"}">${icon("move")} ${move}</span>
+      <span class="pip ${u.actionUsed ? "pip--spent" : "pip--on"}">ACT</span>
+      <span class="pip ${u.bonusUsed ? "pip--spent" : "pip--on"}">BON</span>
     </div>
-    ${pendingFeature ? `<p class="sub" style="color:#d8a24a">Pick a ${pendingFeature.needs} target on the board…</p>` : ""}`;
+    <div class="actiongrid">
+      ${btn("attack", "atk", "Attack", canAttack)}
+      ${btn("dash", "dash", "Dash", !u.actionUsed)}
+      ${btn("disengage", "disengage", "Disengage", !u.actionUsed)}
+      ${btn("dodge", "dodge", "Dodge", !u.actionUsed)}
+      ${shoveN ? btn("shove", "shove", `Shove ${shoveN}`, !u.actionUsed) : ""}
+    </div>
+    ${feats.length ? `<div class="actiongrid">${feats.map((f) => `<button data-feat="${f.id}" data-needs="${f.needsTarget}" ${f.enabled ? "" : "disabled"} title="${esc(f.text)}">${icon(f.kind === "bonus" ? "buff" : "star")} ${esc(f.name)}</button>`).join("")}</div>` : ""}
+    <div class="row">
+      <button class="primary" data-act="end">${icon("check")} End turn</button>
+      <button class="danger" data-act="giveup" title="Abandon the run">${icon("x")}</button>
+    </div>
+    ${pendingFeature ? `<p class="hint">${icon("threat")} Pick a ${pendingFeature.needs} target on the board</p>` : ""}
+  </div>`;
 }
 
 function wirePlayerControls(): void {
   const hud = document.getElementById("hud")!;
-  hud.querySelectorAll<HTMLElement>("[data-act]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+  hud.querySelectorAll<HTMLElement>("[data-act]").forEach((b) => {
+    b.addEventListener("click", () => {
       if (!enc) return;
-      const a = btn.dataset.act!;
-      if (a === "dash") enc.dash();
+      const a = b.dataset.act!;
+      if (a === "attack") { pendingFeature = { id: "__attack", needs: "enemy" }; }
+      else if (a === "dash") enc.dash();
       else if (a === "disengage") enc.disengage();
       else if (a === "dodge") enc.dodge();
       else if (a === "end") enc.endTurn();
@@ -468,7 +477,7 @@ function wirePlayerControls(): void {
         if (t.length === 1) enc.shove(t[0].id);
         else pendingFeature = { id: "__shove", needs: "enemy" };
       } else if (a === "giveup") {
-        if (confirm("Abandon the run? Everyone carrying loot loses it.")) {
+        if (confirm("Abandon the run? Everything on your bodies is lost.")) {
           enc.phase = "lost";
           refreshEncounter();
           return;
@@ -477,56 +486,72 @@ function wirePlayerControls(): void {
       refreshEncounter();
     });
   });
-  hud.querySelectorAll<HTMLElement>("[data-feat]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+  hud.querySelectorAll<HTMLElement>("[data-feat]").forEach((b) => {
+    b.addEventListener("click", () => {
       if (!enc) return;
-      const id = btn.dataset.feat!;
-      const needs = btn.dataset.needs as "ally" | "enemy" | "none";
-      if (needs === "none") {
-        enc.useFeature(id);
-        refreshEncounter();
-      } else {
-        pendingFeature = { id, needs };
-        refreshEncounter();
-      }
+      const id = b.dataset.feat!;
+      const needs = b.dataset.needs as "ally" | "enemy" | "none";
+      if (needs === "none") { enc.useFeature(id); refreshEncounter(); }
+      else { pendingFeature = { id, needs }; refreshEncounter(); }
     });
   });
 }
 
-function unitCards(): string {
+function roster(): string {
   if (!enc) return "";
   return enc.units
     .filter((u) => u.alive || u.downed)
     .sort((a, b) => (a.team === b.team ? 0 : a.team === "player" ? -1 : 1))
     .map((u) => {
       const frac = u.hp / u.maxHp;
-      const cls = frac > 0.5 ? "" : frac > 0.25 ? "hurt" : "crit";
-      const isActive = enc!.active?.id === u.id;
+      const hpCls = frac > 0.5 ? "" : frac > 0.25 ? "hpbar--hurt" : "hpbar--crit";
+      const active = enc!.active?.id === u.id;
+      const state = u.downed ? "urow--downed" : "";
+      const conds = u.conditions
+        .map((c) => {
+          const m = CONDITION_ICON[c.kind];
+          return m ? `<span class="cond cond--${m.tone}" title="${m.label}">${icon(m.icon)}</span>` : "";
+        })
+        .join("");
+      const intent =
+        u.team === "enemy" && u.alive && u.intent && u.intent.kind !== "wait"
+          ? `<span class="intent" title="${esc(u.intent.note)}">${icon(u.intent.kind === "attack" ? "atk" : "move")}${u.intent.targetId ? "→" + initialOf(u.intent.targetId) : ""}</span>`
+          : "";
       return `
-      <div class="unit-card ${u.team} ${isActive ? "active" : ""} ${u.downed ? "downed" : ""}">
-        <div class="spread">
-          <b>${esc(u.name)}</b>
-          <span class="sub">${u.hp}/${u.maxHp}${u.downed ? " · DOWN" : ""}</span>
+      <div class="urow urow--${u.team} ${active ? "urow--active" : ""} ${state}">
+        <span class="urow__bar"></span>
+        <div class="urow__main">
+          <div class="urow__line">
+            <span class="urow__name">${esc(u.name)}</span>
+            <span class="conds">${conds}</span>
+          </div>
+          ${u.downed ? `<div class="hint" style="font-size:10px">${icon("downed")} down — ${u.deathFail}/3</div>` : `<div class="hpbar ${hpCls}"><i style="width:${Math.max(0, frac * 100)}%"></i></div>`}
         </div>
-        <div class="hpbar ${cls}"><i style="width:${Math.max(0, frac * 100)}%"></i></div>
-        <div class="sub muted">AC ${u.ac} · ${esc(u.weapon.name)}${u.team === "enemy" && u.intent ? ` · ${esc(u.intent.note)}` : ""}</div>
+        <div class="urow__side">
+          <span class="urow__hp" style="color:${frac > 0.5 ? "var(--good)" : frac > 0.25 ? "var(--warn)" : "var(--bad)"}">${u.downed ? "—" : `${u.hp}`}</span>
+          ${intent || `<span class="sub mono" style="font-size:10px">AC${u.ac}</span>`}
+        </div>
       </div>`;
     })
     .join("");
 }
 
-function enemyList(): string {
-  if (!enc) return "";
-  return `<div class="col">${unitCards()}</div>`;
+function initialOf(unitId: string): string {
+  const u = enc?.units.find((z) => z.id === unitId);
+  return u ? (u.name[0] ?? "?").toUpperCase() : "?";
 }
 
 function renderLog(): void {
-  const logEl = document.getElementById("log");
-  if (!logEl || !enc) return;
-  logEl.innerHTML = enc.log
+  const el = document.getElementById("log");
+  if (!el || !enc) return;
+  el.innerHTML = enc.log
     .slice(-40)
     .reverse()
-    .map((l) => `<p>${esc(l)}</p>`)
+    .map((l) => {
+      const s = logStyle(l);
+      const ic = s.icon ? icon(s.icon) : `<span class="ic"></span>`;
+      return `<div class="log__line ${s.tone ? "t-" + s.tone : ""}">${ic}<span>${esc(l.replace(/^—\s*/, ""))}</span></div>`;
+    })
     .join("");
 }
 
@@ -537,21 +562,21 @@ function renderAftermath(): void {
   const r = report;
   app.innerHTML = `
   <div class="wrap center col">
-    <h1>Deep ${run.state.depth} cleared</h1>
+    <div><div class="eyebrow">Aftermath</div><h1>Deep ${run.state.depth} cleared</h1></div>
     <div class="panel col">
-      ${r.deaths.length ? `<p style="color:#a5342b"><b>Lost:</b> ${r.deaths.map(esc).join(", ")} — their gear was salvaged.</p>` : `<p class="muted">No deaths.</p>`}
-      <p><b>+${r.loot}g</b> looted (carrying ${run.state.gold}g).</p>
-      ${r.levelUps.length ? `<p><b>Level up:</b> ${r.levelUps.map((l) => `${esc(l.name)} → Lv ${l.to}`).join(", ")}</p>` : `<p class="muted">No level-ups this floor.</p>`}
+      <div class="statrow">
+        ${stat("loot", `+${r.loot}g`, "gold", "looted")}
+        ${stat("check", `${run.state.gold}g`, "", "carrying")}
+        ${r.deaths.length ? stat("skull", r.deaths.length, "bad", "lost") : stat("hp", run.state.party.length, "good", "all alive")}
+      </div>
+      ${r.deaths.length ? `<p class="log__line t-bad">${icon("skull")}<span>Lost: ${r.deaths.map(esc).join(", ")} — gear salvaged.</span></p>` : ""}
+      ${r.levelUps.length ? `<p class="log__line t-good">${icon("star")}<span>Level up: ${r.levelUps.map((l) => `${esc(l.name)} → L${l.to}`).join(", ")}</span></p>` : `<p class="sub">No level-ups this floor.</p>`}
     </div>
     <h2>Warband</h2>
     <div class="cards">${run.state.party.map((c) => characterCard(c)).join("")}</div>
-    <div class="row"><button class="primary" id="go">Onward →</button></div>
+    <div class="row"><button class="primary" id="go">${icon("chevron")} Onward</button></div>
   </div>`;
-  document.getElementById("go")!.addEventListener("click", () => {
-    enc = null;
-    phase = "descent";
-    render();
-  });
+  document.getElementById("go")!.addEventListener("click", () => { enc = null; phase = "descent"; render(); });
 }
 
 // ---------------------------------------------------------------- game over
@@ -560,10 +585,9 @@ function finishRun(): void {
   if (!run) return;
   const st = run.state;
   const outcome = st.outcome ?? "wipe";
-  const banked = outcome === "retired" ? st.bankedGold : st.bankedGold; // wiped: only what was banked earlier
   meta = recordRun(
     meta,
-    { seed: st.seed, depth: st.depth, outcome, banked, party: st.party.map((c) => c.name) },
+    { seed: st.seed, depth: st.depth, outcome, banked: st.bankedGold, party: st.party.map((c) => c.name) },
     st.graveyard,
   );
   teardownEncounter();
@@ -577,39 +601,47 @@ function renderGameOver(): void {
   const retired = st.outcome === "retired";
   app.innerHTML = `
   <div class="wrap center col">
-    <h1>${retired ? "The warband retires" : "The Deep keeps them"}</h1>
+    <div><div class="eyebrow">${retired ? "Extraction" : "Wipe"}</div><h1>${retired ? "The warband retires" : "The Deep keeps them"}</h1></div>
     <div class="panel col">
-      <p>Reached <b>Deep ${st.depth}</b>.</p>
-      <p>${retired ? `Everyone got out. Banked <b>${st.bankedGold}g</b> total${report ? ` (retirement bonus +${report.loot}g)` : ""}.` : `Wiped. Only the <b>${st.bankedGold}g</b> sent up earlier survives. ${st.gold}g lost with the bodies.`}</p>
-      ${st.graveyard.length ? `<h3 class="sub">Fallen this run</h3>${st.graveyard.map((x) => `<div class="grave"><div class="n">${esc(x.name)} — Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub muted">${esc(x.cause)}</div></div>`).join("")}` : ""}
+      <div class="statrow">
+        ${stat("chevron", `Deep ${st.depth}`, "", "reached")}
+        ${stat("check", `${st.bankedGold}g`, "gold", "banked")}
+        ${!retired ? stat("loot", `${st.gold}g`, "bad", "lost with the bodies") : ""}
+      </div>
+      <p class="sub">${retired
+        ? `Everyone got out.${report ? ` Retirement bonus +${report.loot}g.` : ""}`
+        : `Only what was sent up earlier survives.`}</p>
+      ${st.graveyard.length ? `<h3>Fallen this run</h3>${st.graveyard.map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}` : ""}
     </div>
-    <div class="panel">
-      <h3 class="sub">The Gordion Pit</h3>
-      <p class="sub">Deepest ever: Deep ${meta.bestDepth} · Richest bank: ${meta.bestBanked}g · Total banked across all runs: ${meta.totalBanked}g</p>
+    <div class="panel statrow">
+      ${stat("chevron", `Deep ${meta.bestDepth}`, "", "deepest ever")}
+      ${stat("loot", `${meta.bestBanked}g`, "gold", "richest bank")}
+      ${stat("loot", `${meta.totalBanked}g`, "", "total banked")}
     </div>
     <div class="row">
-      <button class="primary" id="again">New run</button>
-      <button id="title">Back to title</button>
+      <button class="primary" id="again">${icon("round")} New run</button>
+      <button id="title">Title</button>
     </div>
   </div>`;
   document.getElementById("again")!.addEventListener("click", () => {
-    run = new Run();
-    enc = null;
-    report = null;
-    phase = "draft";
-    render();
+    run = new Run(); enc = null; report = null; phase = "draft"; render();
   });
   document.getElementById("title")!.addEventListener("click", () => {
-    run = null;
-    enc = null;
-    phase = "title";
-    render();
+    run = null; enc = null; phase = "title"; render();
   });
 }
 
-// ---------------------------------------------------------------- toast
+// ---------------------------------------------------------------- toast + dev
 
-// dev shortcut: ?dev=enc[&seed=xxx] jumps straight into a deployed encounter
+function flashToast(msg: string): void {
+  const t = document.createElement("div");
+  t.textContent = msg;
+  t.style.cssText =
+    "position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#1b1410;border:1px solid var(--gold);color:#ece0cd;padding:8px 15px;border-radius:5px;z-index:9998;font:13px/1 var(--font-mono)";
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 1800);
+}
+
 function maybeDevJump(): boolean {
   const p = new URLSearchParams(location.search);
   if (p.get("dev") !== "enc") return false;
@@ -629,9 +661,8 @@ function maybeDevJump(): boolean {
       const foes = e.units.filter((x) => x.team === "enemy" && x.alive);
       let moved = false;
       if (foes.length && e.moveBudget(u) > 0) {
-        const reach = [...e.moveOptions(u).keys()];
         let best: string | null = null, bd = Infinity;
-        for (const k of reach) {
+        for (const k of e.moveOptions(u).keys()) {
           const [q, r] = k.split(",").map(Number);
           const d = Math.min(...foes.map((f) => Math.abs(f.pos.q - q) + Math.abs(f.pos.r - r)));
           if (d < bd) { bd = d; best = k; }
@@ -641,18 +672,9 @@ function maybeDevJump(): boolean {
       if (!moved) e.endTurn();
     }
     enc = e;
-    phase = e.phase === "won" || e.phase === "lost" ? "encounter" : "encounter";
+    phase = "encounter";
   }
   return true;
-}
-
-function flashToast(msg: string): void {
-  const t = document.createElement("div");
-  t.textContent = msg;
-  t.style.cssText =
-    "position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#1b1714;border:1px solid #d8a24a;color:#e7ddd0;padding:8px 16px;border-radius:5px;z-index:9998;font-size:13px";
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1800);
 }
 
 maybeDevJump();
