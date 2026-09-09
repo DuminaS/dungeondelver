@@ -5,10 +5,13 @@ import { icon, roleIcon } from "./icons";
  * Served from the assets dir for the hosted build; inlined as data URIs for
  * the single-file artifact build (see vite.config __CRESTS__).
  */
+/** bump when the crest art is regenerated so caches refetch */
+const CREST_REV = "3";
+
 export function crestUrl(id: string): string {
   const inlined =
     typeof __CRESTS__ !== "undefined" && __CRESTS__ ? __CRESTS__[id] : null;
-  return inlined ?? `${import.meta.env.BASE_URL}logos/${id}.webp`;
+  return inlined ?? `${import.meta.env.BASE_URL}logos/${id}.webp?v=${CREST_REV}`;
 }
 
 /**

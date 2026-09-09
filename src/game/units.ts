@@ -35,6 +35,7 @@ export function unitFromCharacter(c: Character, pos: Hex): Unit {
     secondWindUsed: false,
     surgeUsed: false,
     cureUses: 3,
+    featUses: {},
     markTargetId: null,
     intent: null,
   };
@@ -71,6 +72,7 @@ export function unitFromMonster(m: MonsterDef, pos: Hex, hpScale = 1): Unit {
     secondWindUsed: false,
     surgeUsed: false,
     cureUses: 0,
+    featUses: {},
     markTargetId: null,
     intent: null,
   };

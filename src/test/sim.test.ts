@@ -60,6 +60,26 @@ function autoPlayEncounter(enc: Encounter): void {
       enc.endTurn();
       continue;
     }
+    // exercise a class feature ~half the time
+    const feats = enc.featureButtons(u).filter((f) => f.enabled);
+    if (feats.length && guard % 2 === 0) {
+      const f = feats[(guard >> 1) % feats.length];
+      const tgt =
+        f.needsTarget === "enemy"
+          ? enc.enemiesOf(u)[0]?.id
+          : f.needsTarget === "ally"
+            ? enc.allies(u)[0]?.id
+            : undefined;
+      if (f.needsTarget === "hex") {
+        // misty step to any adjacent open tile
+        for (const n of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+          if (enc.teleport({ q: u.pos.q + n[0], r: u.pos.r + n[1] })) break;
+        }
+      } else if (f.needsTarget === "none" || tgt) {
+        enc.useFeature(f.id, tgt);
+      }
+      continue;
+    }
     const targets = enc.attackTargets(u);
     if (targets.length && !u.actionUsed) {
       targets.sort((a, b) => a.hp - b.hp);
@@ -120,6 +140,34 @@ describe("full run simulation", () => {
         expect(c.hp).toBeLessThanOrEqual(c.maxHp);
         expect(c.level).toBeGreaterThanOrEqual(1);
       }
+    }
+  });
+
+  it("every class generates a valid recruit and can fight", async () => {
+    const { makeCharacter } = await import("../game/character");
+    const { CLASS_IDS } = await import("../game/types");
+    const { generateArena } = await import("../game/arena");
+    const { unitFromCharacter } = await import("../game/units");
+    for (const classId of CLASS_IDS) {
+      const rng = new RNG(`cls-${classId}`);
+      const c = makeCharacter(rng, { classId });
+      expect(c.classId).toBe(classId);
+      expect(c.maxHp).toBeGreaterThan(0);
+      expect(c.ac).toBeGreaterThanOrEqual(8);
+      expect(c.weapon.dice).toMatch(/\d*d\d+/);
+      const arena = generateArena(rng.fork("a"), 2, "combat", 1);
+      const enc = new Encounter({
+        grid: arena.grid,
+        players: [unitFromCharacter(c, arena.deployZone[0])],
+        enemies: arena.enemies,
+        objective: arena.objective,
+        rng: rng.fork("e"),
+        depth: 2,
+        deployZone: arena.deployZone,
+      });
+      enc.autoDeploy();
+      autoPlayEncounter(enc);
+      expect(["won", "lost"]).toContain(enc.phase);
     }
   });
 

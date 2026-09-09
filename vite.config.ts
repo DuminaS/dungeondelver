@@ -4,7 +4,10 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
 /** class crests to inline as data URIs for the single-file artifact build */
-const INLINE_CRESTS = ["fighter", "rogue", "ranger", "cleric"];
+const INLINE_CRESTS = [
+  "fighter", "rogue", "ranger", "cleric", "barbarian", "paladin", "monk",
+  "bard", "druid", "sorcerer", "warlock", "wizard", "artificer",
+];
 
 function crestData(single: boolean): string {
   if (!single) return "null";

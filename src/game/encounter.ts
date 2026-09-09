@@ -2,6 +2,7 @@ import { RNG } from "../core/rng";
 import { Hex, distance, eq, key, neighbors } from "../core/hex";
 import { HexGrid, HazardKind } from "../core/grid";
 import { Condition, ConditionKind, Objective, Unit } from "./types";
+import { FEATURES } from "./data";
 
 export interface AttackPreview {
   target: Unit;
@@ -19,11 +20,19 @@ export interface FeatureButton {
   text: string;
   enabled: boolean;
   reason?: string;
-  needsTarget: "ally" | "enemy" | "none";
+  needsTarget: "ally" | "enemy" | "none" | "hex";
   kind: "action" | "bonus";
 }
 
 export type EncPhase = "deploy" | "player" | "enemy" | "won" | "lost";
+
+interface AttackOpts {
+  toHitMod?: number;
+  dmgMod?: number;
+  note?: string;
+  noCrit?: boolean;
+  extraDice?: string;
+}
 
 const HAZARD_ENTER: Record<HazardKind, { dice: string; note: string }> = {
   acid: { dice: "1d6", note: "acid" },
@@ -109,6 +118,61 @@ export class Encounter {
 
   hasCondition(u: Unit, k: ConditionKind): boolean {
     return u.conditions.some((c) => c.kind === k);
+  }
+
+  usesLeft(u: Unit, id: string, max: number): number {
+    return max - (u.featUses[id] ?? 0);
+  }
+  private spend(u: Unit, id: string): void {
+    u.featUses[id] = (u.featUses[id] ?? 0) + 1;
+  }
+
+  private levelOf(u: Unit): number {
+    return Math.max(1, 1 + Math.floor((u.maxHp - 10) / 6));
+  }
+
+  private healUnit(healer: Unit, target: Unit, amount: number): void {
+    amount = Math.max(1, Math.round(amount));
+    if (target.downed) {
+      target.downed = false;
+      target.hp = amount;
+      target.deathFail = 0;
+      target.deathSuccess = 0;
+      this.say(`${healer.name} drags ${target.name} back up (+${amount}).`);
+    } else {
+      target.hp = Math.min(target.maxHp, target.hp + amount);
+      this.say(`${healer.name} heals ${target.name} for ${amount}.`);
+    }
+    this.emit();
+  }
+
+  private attackSequence(u: Unit, targetId: string, count: number, opts: AttackOpts): void {
+    for (let i = 0; i < count; i++) {
+      let cur = this.units.find((x) => x.id === targetId && x.alive);
+      if (!cur) {
+        cur = this.attackTargets(u)[0];
+        if (!cur) break;
+      }
+      this.resolveAttack(u, cur, opts);
+      u.sneakUsedThisTurn = true;
+      u.colossusUsedThisTurn = true;
+      if (this.checkEnd()) return;
+    }
+  }
+
+  teleport(h: Hex): boolean {
+    const u = this.active;
+    if (!u || this.phase !== "player" || u.bonusUsed) return false;
+    if (!u.featureIds.includes("misty_step") || this.usesLeft(u, "misty_step", 1) <= 0) return false;
+    const t = this.grid.get(h);
+    if (!t || t.terrain === "wall" || t.terrain === "chasm" || this.unitAt(h)) return false;
+    if (distance(u.pos, h) > 6) return false;
+    u.bonusUsed = true;
+    this.spend(u, "misty_step");
+    u.pos = { ...h };
+    this.say(`${u.name} blinks across the floor.`);
+    this.afterPlayerAction(u);
+    return true;
   }
 
   addCondition(u: Unit, c: Condition): void {
@@ -383,9 +447,13 @@ export class Encounter {
     }
     if (this.hasCondition(target, "dodging")) dis++;
     if (this.hasCondition(attacker, "prone")) dis++;
+    if (this.hasCondition(attacker, "mocked")) dis++;
+    if (!ranged && this.hasCondition(attacker, "reckless")) adv++;
+    if (this.hasCondition(target, "reckless")) adv++;
 
     let bonus = 0;
     if (this.hasCondition(attacker, "blessed")) bonus += 2; // avg of 1d4, previewed as +2
+    if (this.hasCondition(attacker, "inspired")) bonus += 3; // avg of 1d6
     if (attacker.featureIds.includes("keen_eyed") && ranged && distance(attacker.pos, target.pos) >= 3) bonus += 1;
     if (attacker.featureIds.includes("bloodscent") && target.hp <= target.maxHp / 2) bonus += 2;
 
@@ -399,8 +467,12 @@ export class Encounter {
   private situationalDamage(attacker: Unit, target: Unit): { flat: number; dice: string[] } {
     let flat = 0;
     const dice: string[] = [];
+    const ranged = attacker.weapon.range > 1;
     if (attacker.featureIds.includes("bloodscent") && target.hp <= target.maxHp / 2) flat += 2;
     if (attacker.featureIds.includes("zealot")) flat += 2; // "while healthy" — simplified: always on
+    if (this.hasCondition(attacker, "raging") && !ranged) flat += 2;
+    if (attacker.featureIds.includes("font_of_magic") && ranged) flat += 1;
+    if (attacker.featureIds.includes("agonizing_blast")) flat += 2;
     if (attacker.markTargetId === target.id) dice.push("1d6");
     if (
       (attacker.featureIds.includes("sneak_attack") || attacker.featureIds.includes("sneak_attack_2")) &&
@@ -429,7 +501,7 @@ export class Encounter {
   }
 
   /** player: perform the Attack action against target (handles Extra Attack) */
-  doAttack(targetId: string, opts?: { powerAttack?: boolean }): boolean {
+  doAttack(targetId: string, opts?: { powerAttack?: boolean; extraDice?: string; note?: string }): boolean {
     const u = this.active;
     if (!u || this.phase !== "player" || u.actionUsed) return false;
     const target = this.units.find((x) => x.id === targetId && x.alive);
@@ -439,30 +511,27 @@ export class Encounter {
     for (let i = 0; i < swings; i++) {
       let cur = this.units.find((x) => x.id === targetId && x.alive);
       if (!cur) {
-        // target dead: redirect a leftover swing to another in-range enemy
         cur = this.attackTargets(u)[0];
         if (!cur) break;
       }
       this.resolveAttack(u, cur, {
         toHitMod: opts?.powerAttack ? -2 : 0,
         dmgMod: opts?.powerAttack ? 4 : 0,
-        note: opts?.powerAttack ? "power attack" : undefined,
+        // smite / big riders land on the first swing only
+        extraDice: i === 0 ? opts?.extraDice : undefined,
+        note: opts?.note ?? (opts?.powerAttack ? "power attack" : undefined),
       });
       u.sneakUsedThisTurn = true;
       u.colossusUsedThisTurn = true;
+      if (this.checkEnd()) return true;
     }
     this.afterPlayerAction(u);
     return true;
   }
 
-  private resolveAttack(
-    attacker: Unit,
-    target: Unit,
-    opts: { toHitMod?: number; dmgMod?: number; note?: string; noCrit?: boolean } = {},
-  ): void {
+  private resolveAttack(attacker: Unit, target: Unit, opts: AttackOpts = {}): void {
     const { mode, bonus, targetAc } = this.attackParams(attacker, target);
     let face = this.rng.d20(mode);
-    // Lucky trait: reroll a natural 1 once per floor
     if (face === 1 && attacker.featureIds.includes("lucky") && !attacker.luckUsedThisFloor) {
       attacker.luckUsedThisFloor = true;
       const nf = this.rng.d20("flat");
@@ -471,29 +540,43 @@ export class Encounter {
     }
     const keen = attacker.weapon.name.startsWith("Keen ");
     const blessBonus = this.hasCondition(attacker, "blessed") ? this.rng.roll("1d4") : 0;
-    const total = face + attacker.toHit + bonus - (this.hasCondition(attacker, "blessed") ? 2 : 0) + blessBonus + (opts.toHitMod ?? 0);
+    const inspBonus = this.hasCondition(attacker, "inspired") ? this.rng.roll("1d6") : 0;
+    if (inspBonus) this.removeCondition(attacker, "inspired");
+    const previewBonus = (this.hasCondition(attacker, "blessed") ? 2 : 0) + (inspBonus ? 3 : 0);
+    const total =
+      face + attacker.toHit + bonus - previewBonus + blessBonus + inspBonus + (opts.toHitMod ?? 0);
     const isCrit = !opts.noCrit && (face === 20 || (keen && face === 19));
     const isMiss = face === 1;
     const noteStr = opts.note ? ` (${opts.note})` : "";
 
     if (isMiss || (!isCrit && total < targetAc)) {
-      this.say(`${attacker.name} misses ${target.name}${noteStr}. [${face}+${attacker.toHit + bonus + (opts.toHitMod ?? 0)} vs AC ${targetAc}]`);
+      this.say(`${attacker.name} misses ${target.name}${noteStr}.`);
       this.emit();
       return;
     }
 
-    const [dc, ds] = parseDice(attacker.weapon.dice);
+    // base weapon dice, upgraded by passive "scaling" features
+    let baseDice = attacker.weapon.dice;
+    if (attacker.featureIds.includes("radiant_scaling") && attacker.weapon.name === "Sacred Flame") baseDice = "2d8";
+    if (attacker.featureIds.includes("sorc_scaling")) baseDice = "2d8";
+    if (attacker.featureIds.includes("fire_scaling")) baseDice = "2d10";
+
+    const [dc, ds] = parseDice(baseDice);
     let dmg = 0;
     const critDice = isCrit ? dc * 2 : dc;
     for (let i = 0; i < critDice; i++) dmg += this.rng.int(1, ds);
     dmg += attacker.damageBonus + (opts.dmgMod ?? 0);
 
+    if (opts.extraDice) {
+      const [xc, xs] = parseDice(opts.extraDice);
+      for (let i = 0; i < (isCrit ? xc * 2 : xc); i++) dmg += this.rng.int(1, xs);
+    }
+
     const sit = this.situationalDamage(attacker, target);
     dmg += sit.flat;
     for (const spec of sit.dice) {
       const [ec, es] = parseDice(spec);
-      const rolls = isCrit ? ec * 2 : ec;
-      for (let i = 0; i < rolls; i++) dmg += this.rng.int(1, es);
+      for (let i = 0; i < (isCrit ? ec * 2 : ec); i++) dmg += this.rng.int(1, es);
     }
     if (target.featureIds.includes("brittle")) dmg += 1;
     dmg = Math.max(1, dmg);
@@ -503,12 +586,16 @@ export class Encounter {
         (mode !== "flat" ? ` [${mode}]` : ""),
     );
     this.applyDamage(target, dmg, `slain by ${attacker.name}`, attacker);
+    if (target.alive && attacker.weapon.name === "Vicious Mockery") {
+      this.addCondition(target, { kind: "mocked", duration: 1 });
+    }
     this.emit();
   }
 
   private applyDamage(target: Unit, amount: number, cause: string, source: Unit | null): void {
     if (!target.alive || amount <= 0) return;
     if (target.featureIds.includes("stoneblood") && cause.includes("acid")) amount = Math.max(1, amount - 1);
+    if (this.hasCondition(target, "raging") && cause.startsWith("slain by")) amount = Math.max(1, Math.ceil(amount / 2));
     target.hp -= amount;
 
     // half-orc Relentless
@@ -687,7 +774,76 @@ export class Encounter {
         needsTarget: "none",
         kind: "bonus",
       });
+
+    const inRangeEnemy = this.attackTargets(u).length > 0;
+    const hurtAllyNear = (r: number) =>
+      this.allies(u).some((a) => distance(a.pos, u.pos) <= r && (a.hp < a.maxHp || a.downed));
+
+    if (f.includes("rage"))
+      out.push({ id: "rage", name: `Rage (${this.usesLeft(u, "rage", 2)})`, text: FEATURES.rage.text,
+        enabled: !u.bonusUsed && !this.hasCondition(u, "raging") && this.usesLeft(u, "rage", 2) > 0,
+        needsTarget: "none", kind: "bonus" });
+    if (f.includes("reckless"))
+      out.push({ id: "reckless", name: "Reckless", text: FEATURES.reckless.text,
+        enabled: !this.hasCondition(u, "reckless"), needsTarget: "none", kind: "bonus" });
+    if (f.includes("divine_smite"))
+      out.push({ id: "divine_smite", name: `Smite (${this.usesLeft(u, "divine_smite", 2)})`, text: FEATURES.divine_smite.text,
+        enabled: !u.actionUsed && inRangeEnemy && this.usesLeft(u, "divine_smite", 2) > 0,
+        needsTarget: "enemy", kind: "action" });
+    if (f.includes("lay_on_hands"))
+      out.push({ id: "lay_on_hands", name: `Lay on Hands (${this.usesLeft(u, "lay_on_hands", 2)})`, text: FEATURES.lay_on_hands.text,
+        enabled: !u.actionUsed && this.usesLeft(u, "lay_on_hands", 2) > 0 && this.allies(u).some((a) => distance(a.pos, u.pos) === 1 && (a.hp < a.maxHp || a.downed)),
+        needsTarget: "ally", kind: "action" });
+    if (f.includes("martial_strike"))
+      out.push({ id: "martial_strike", name: "Martial Strike", text: FEATURES.martial_strike.text,
+        enabled: !u.bonusUsed && inRangeEnemy, needsTarget: "enemy", kind: "bonus" });
+    if (f.includes("flurry"))
+      out.push({ id: "flurry", name: `Flurry (${this.usesLeft(u, "flurry", 3)})`, text: FEATURES.flurry.text,
+        enabled: !u.bonusUsed && inRangeEnemy && this.usesLeft(u, "flurry", 3) > 0, needsTarget: "enemy", kind: "bonus" });
+    if (f.includes("patient_defense"))
+      out.push({ id: "patient_defense", name: "Patient Defense", text: FEATURES.patient_defense.text,
+        enabled: !u.bonusUsed, needsTarget: "none", kind: "bonus" });
+    if (f.includes("inspire"))
+      out.push({ id: "inspire", name: `Inspire (${this.usesLeft(u, "inspire", 3)})`, text: FEATURES.inspire.text,
+        enabled: !u.bonusUsed && this.usesLeft(u, "inspire", 3) > 0 && this.allies(u).length > 0, needsTarget: "ally", kind: "bonus" });
+    if (f.includes("healing_word"))
+      out.push({ id: "healing_word", name: `Healing Word (${this.usesLeft(u, "healing_word", 2)})`, text: FEATURES.healing_word.text,
+        enabled: !u.bonusUsed && this.usesLeft(u, "healing_word", 2) > 0 && hurtAllyNear(6), needsTarget: "ally", kind: "bonus" });
+    if (f.includes("flash_repair"))
+      out.push({ id: "flash_repair", name: `Flash Repair (${this.usesLeft(u, "flash_repair", 2)})`, text: FEATURES.flash_repair.text,
+        enabled: !u.bonusUsed && this.usesLeft(u, "flash_repair", 2) > 0 && hurtAllyNear(6), needsTarget: "ally", kind: "bonus" });
+    if (f.includes("wild_shape"))
+      out.push({ id: "wild_shape", name: `Wild Shape (${this.usesLeft(u, "wild_shape", 1)})`, text: FEATURES.wild_shape.text,
+        enabled: !u.bonusUsed && this.usesLeft(u, "wild_shape", 1) > 0, needsTarget: "none", kind: "bonus" });
+    if (f.includes("fiendish_vigor"))
+      out.push({ id: "fiendish_vigor", name: `Fiendish Vigor (${this.usesLeft(u, "fiendish_vigor", 2)})`, text: FEATURES.fiendish_vigor.text,
+        enabled: !u.bonusUsed && this.usesLeft(u, "fiendish_vigor", 2) > 0, needsTarget: "none", kind: "bonus" });
+    if (f.includes("hex"))
+      out.push({ id: "hex", name: u.markTargetId ? "Move Hex" : "Hex", text: FEATURES.hex.text,
+        enabled: !u.bonusUsed && this.enemiesOf(u).length > 0, needsTarget: "enemy", kind: "bonus" });
+    if (f.includes("quickened"))
+      out.push({ id: "quickened", name: `Quicken (${this.usesLeft(u, "quickened", 2)})`, text: FEATURES.quickened.text,
+        enabled: !u.bonusUsed && inRangeEnemy && this.usesLeft(u, "quickened", 2) > 0, needsTarget: "enemy", kind: "bonus" });
+    if (f.includes("magic_missile"))
+      out.push({ id: "magic_missile", name: `Magic Missile (${this.usesLeft(u, "magic_missile", 2)})`, text: FEATURES.magic_missile.text,
+        enabled: !u.actionUsed && this.usesLeft(u, "magic_missile", 2) > 0 && this.losEnemies(u, 12).length > 0, needsTarget: "enemy", kind: "action" });
+    if (f.includes("alchemist_fire"))
+      out.push({ id: "alchemist_fire", name: `Alch. Fire (${this.usesLeft(u, "alchemist_fire", 3)})`, text: FEATURES.alchemist_fire.text,
+        enabled: !u.actionUsed && this.usesLeft(u, "alchemist_fire", 3) > 0 && this.losEnemies(u, 6).length > 0, needsTarget: "enemy", kind: "action" });
+    if (f.includes("misty_step"))
+      out.push({ id: "misty_step", name: `Misty Step (${this.usesLeft(u, "misty_step", 1)})`, text: FEATURES.misty_step.text,
+        enabled: !u.bonusUsed && this.usesLeft(u, "misty_step", 1) > 0, needsTarget: "hex", kind: "bonus" });
+    if (f.includes("arcane_shield"))
+      out.push({ id: "arcane_shield", name: "Shield", text: FEATURES.arcane_shield.text,
+        enabled: !u.bonusUsed && !this.hasCondition(u, "dodging"), needsTarget: "none", kind: "bonus" });
     return out;
+  }
+
+  /** enemies with LOS within range (for spell targeting) */
+  losEnemies(u: Unit, range: number): Unit[] {
+    return this.enemiesOf(u).filter(
+      (e) => distance(u.pos, e.pos) <= range && this.grid.hasLineOfSight(u.pos, e.pos),
+    );
   }
 
   useFeature(id: string, targetId?: string): boolean {
@@ -763,6 +919,136 @@ export class Encounter {
         this.say(`${u.name} calls a blessing on the line.`);
         break;
       }
+      case "rage": {
+        if (u.bonusUsed || this.hasCondition(u, "raging") || this.usesLeft(u, "rage", 2) <= 0) return false;
+        u.bonusUsed = true;
+        this.spend(u, "rage");
+        this.addCondition(u, { kind: "raging", duration: -1 });
+        this.say(`${u.name} flies into a rage.`);
+        break;
+      }
+      case "reckless": {
+        if (this.hasCondition(u, "reckless")) return false;
+        this.addCondition(u, { kind: "reckless", duration: 1 });
+        this.say(`${u.name} throws caution aside.`);
+        break;
+      }
+      case "divine_smite": {
+        if (!target || u.actionUsed || this.usesLeft(u, "divine_smite", 2) <= 0) return false;
+        this.spend(u, "divine_smite");
+        return this.doAttack(target.id, { extraDice: "2d8", note: "smite" });
+      }
+      case "lay_on_hands": {
+        if (!target || u.actionUsed || this.usesLeft(u, "lay_on_hands", 2) <= 0) return false;
+        if (distance(target.pos, u.pos) !== 1) return false;
+        u.actionUsed = true;
+        this.spend(u, "lay_on_hands");
+        this.healUnit(u, target, this.rng.roll("1d8") + 4);
+        break;
+      }
+      case "martial_strike": {
+        if (!target || u.bonusUsed) return false;
+        u.bonusUsed = true;
+        this.attackSequence(u, target.id, 1, {});
+        break;
+      }
+      case "flurry": {
+        if (!target || u.bonusUsed || this.usesLeft(u, "flurry", 3) <= 0) return false;
+        u.bonusUsed = true;
+        this.spend(u, "flurry");
+        this.say(`${u.name} unleashes a flurry.`);
+        this.attackSequence(u, target.id, 2, {});
+        break;
+      }
+      case "patient_defense": {
+        if (u.bonusUsed) return false;
+        u.bonusUsed = true;
+        this.addCondition(u, { kind: "dodging", duration: 1 });
+        this.say(`${u.name} settles into a guard.`);
+        break;
+      }
+      case "arcane_shield": {
+        if (u.bonusUsed) return false;
+        u.bonusUsed = true;
+        this.addCondition(u, { kind: "dodging", duration: 1 });
+        this.say(`${u.name} throws up a shield.`);
+        break;
+      }
+      case "inspire": {
+        if (!target || u.bonusUsed || this.usesLeft(u, "inspire", 3) <= 0) return false;
+        if (distance(target.pos, u.pos) > 8) return false;
+        u.bonusUsed = true;
+        this.spend(u, "inspire");
+        this.addCondition(target, { kind: "inspired", duration: 3 });
+        this.say(`${u.name} spurs ${target.name} on.`);
+        break;
+      }
+      case "healing_word":
+      case "flash_repair": {
+        const max = 2;
+        if (!target || u.bonusUsed || this.usesLeft(u, id, max) <= 0) return false;
+        if (distance(target.pos, u.pos) > 6) return false;
+        u.bonusUsed = true;
+        this.spend(u, id);
+        const die = id === "flash_repair" ? "1d8" : "1d4";
+        this.healUnit(u, target, this.rng.roll(die) + Math.max(1, u.damageBonus));
+        break;
+      }
+      case "wild_shape": {
+        if (u.bonusUsed || this.usesLeft(u, "wild_shape", 1) <= 0) return false;
+        u.bonusUsed = true;
+        this.spend(u, "wild_shape");
+        this.healUnit(u, u, this.rng.roll("1d10") + this.levelOf(u));
+        u.weapon = { name: "Beast Claws", dice: "1d10", ranged: false, range: 1, ability: u.weapon.ability };
+        this.say(`${u.name} shifts into a snarling beast.`);
+        break;
+      }
+      case "fiendish_vigor": {
+        if (u.bonusUsed || this.usesLeft(u, "fiendish_vigor", 2) <= 0) return false;
+        u.bonusUsed = true;
+        this.spend(u, "fiendish_vigor");
+        this.healUnit(u, u, this.rng.roll("1d10"));
+        break;
+      }
+      case "hex": {
+        if (!target || u.bonusUsed) return false;
+        u.markTargetId = target.id;
+        u.bonusUsed = true;
+        this.say(`${u.name} hexes ${target.name}.`);
+        break;
+      }
+      case "quickened": {
+        if (!target || u.bonusUsed || this.usesLeft(u, "quickened", 2) <= 0) return false;
+        if (!this.losEnemies(u, u.weapon.range).includes(target)) return false;
+        u.bonusUsed = true;
+        this.spend(u, "quickened");
+        this.say(`${u.name} rushes a second spell.`);
+        this.attackSequence(u, target.id, 1, {});
+        break;
+      }
+      case "magic_missile": {
+        if (!target || u.actionUsed || this.usesLeft(u, "magic_missile", 2) <= 0) return false;
+        if (!this.losEnemies(u, 12).includes(target)) return false;
+        u.actionUsed = true;
+        this.spend(u, "magic_missile");
+        const dmg = this.rng.roll("3d4") + 3;
+        this.say(`${u.name}'s missiles strike ${target.name} for ${dmg} (auto).`);
+        this.applyDamage(target, dmg, `slain by ${u.name}`, u);
+        break;
+      }
+      case "alchemist_fire": {
+        if (!target || u.actionUsed || this.usesLeft(u, "alchemist_fire", 3) <= 0) return false;
+        if (!this.losEnemies(u, 6).includes(target)) return false;
+        u.actionUsed = true;
+        this.spend(u, "alchemist_fire");
+        const dmg = this.rng.roll("2d6");
+        this.say(`${u.name} hurls fire at ${target.name} for ${dmg}.`);
+        this.applyDamage(target, dmg, `burned by ${u.name}`, u);
+        if (target.alive) this.addCondition(target, { kind: "burning", duration: 2 });
+        break;
+      }
+      case "misty_step":
+        return false; // handled via teleport() from the hex click
       default:
         return false;
     }

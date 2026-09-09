@@ -9,7 +9,15 @@ export function mod(score: number): number {
   return Math.floor((score - 10) / 2);
 }
 
-export type ClassId = "fighter" | "rogue" | "ranger" | "cleric";
+export type ClassId =
+  | "fighter" | "rogue" | "ranger" | "cleric"
+  | "barbarian" | "paladin" | "monk" | "bard"
+  | "druid" | "sorcerer" | "warlock" | "wizard" | "artificer";
+export const CLASS_IDS: ClassId[] = [
+  "fighter", "rogue", "ranger", "cleric",
+  "barbarian", "paladin", "monk", "bard",
+  "druid", "sorcerer", "warlock", "wizard", "artificer",
+];
 export type RaceId = "human" | "dwarf" | "elf" | "halforc";
 
 export interface RaceDef {
@@ -89,7 +97,11 @@ export type ConditionKind =
   | "blessed"
   | "poisoned"
   | "burning"
-  | "bleeding";
+  | "bleeding"
+  | "raging"
+  | "reckless"
+  | "mocked"
+  | "inspired";
 
 export interface Condition {
   kind: ConditionKind;
@@ -136,6 +148,8 @@ export interface Unit {
   secondWindUsed: boolean;
   surgeUsed: boolean;
   cureUses: number;
+  /** consumed count per limited feature id */
+  featUses: Record<string, number>;
   markTargetId?: string | null;
   sneakUsedThisTurn?: boolean;
   colossusUsedThisTurn?: boolean;

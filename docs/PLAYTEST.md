@@ -17,7 +17,7 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 | Seeded, deterministic sim | ✅ everything routes through one RNG; same seed + same picks = same run |
 | Hex grid: elevation, terrain, hazards (acid/spikes/fire/gas), chasms, LOS, cover, A* | ✅ |
 | Draft: roll `N=3`, pick `X=3`, **full pool re-roll** after every pick | ✅ |
-| 4 races (Human/Dwarf/Elf/Half-Orc), 4 classes (Fighter/Rogue/Ranger/Cleric) to Lv 5 | ✅ |
+| 4 races (Human/Dwarf/Elf/Half-Orc); **all 13 classes** (Fighter, Rogue, Ranger, Cleric, Barbarian, Paladin, Monk, Bard, Druid, Sorcerer, Warlock, Wizard, Artificer) to Lv 5, each with a starting weapon + 2–3 signature abilities — simplified kits, not full spell lists | ✅ |
 | ~11 traits (boons/banes/quirks) + racial passives | ✅ |
 | Action economy: Move / Action / Bonus / Reaction; Dash, Disengage, Dodge, **Shove** (into chasms/hazards), opportunity attacks | ✅ |
 | Class verbs: Second Wind, Power Attack, Action Surge, Sneak Attack, Cunning Action, Hunter's Mark, Colossus Slayer, Cure Wounds, Bless, Extra Attack | ✅ |

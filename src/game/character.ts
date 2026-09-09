@@ -34,6 +34,15 @@ const STAT_PRIORITY: Record<ClassId, AbilityKey[]> = {
   rogue: ["DEX", "CON", "WIS", "INT", "CHA", "STR"],
   ranger: ["DEX", "WIS", "CON", "STR", "INT", "CHA"],
   cleric: ["WIS", "CON", "STR", "CHA", "INT", "DEX"],
+  barbarian: ["STR", "CON", "DEX", "WIS", "CHA", "INT"],
+  paladin: ["STR", "CON", "CHA", "WIS", "DEX", "INT"],
+  monk: ["DEX", "WIS", "CON", "STR", "INT", "CHA"],
+  bard: ["CHA", "DEX", "CON", "WIS", "INT", "STR"],
+  druid: ["WIS", "CON", "DEX", "INT", "CHA", "STR"],
+  sorcerer: ["CHA", "CON", "DEX", "WIS", "INT", "STR"],
+  warlock: ["CHA", "CON", "DEX", "WIS", "INT", "STR"],
+  wizard: ["INT", "CON", "DEX", "WIS", "CHA", "STR"],
+  artificer: ["INT", "CON", "DEX", "WIS", "CHA", "STR"],
 };
 
 function rollStatArray(rng: RNG): number[] {
@@ -78,11 +87,16 @@ export function recompute(c: Character): void {
   const conMod = mod(c.abilities.CON);
   let maxHp = cls.hitDie + conMod;
   for (let l = 2; l <= c.level; l++) maxHp += Math.max(1, Math.round(avgHitDie(cls.hitDie) + conMod));
-  if (c.featureIds.includes("fighter_grit")) maxHp += 2 * c.level;
+  if (c.featureIds.includes("fighter_grit") || c.featureIds.includes("barb_toughness")) maxHp += 2 * c.level;
   c.maxHp = Math.max(1, maxHp);
 
   const dexMod = mod(c.abilities.DEX);
-  c.ac = 10 + Math.min(dexMod, cls.dexCap) + cls.baseArmor;
+  const wisMod = mod(c.abilities.WIS);
+  if (c.classId === "monk") c.ac = 10 + dexMod + wisMod;
+  else if (c.classId === "barbarian") c.ac = 10 + dexMod + conMod;
+  else c.ac = 10 + Math.min(dexMod, cls.dexCap) + cls.baseArmor;
+  if (c.featureIds.includes("barkskin")) c.ac += 1;
+  if (c.featureIds.includes("infused_armor")) c.ac += 1;
 
   c.speed = race.speed;
   c.skills = [...cls.skills];

@@ -1,6 +1,6 @@
 import "./style.css";
 import { Hex, key } from "./core/hex";
-import { AbilityKey, ABILITIES, Character, Unit } from "./game/types";
+import { AbilityKey, ABILITIES, Character, CLASS_IDS, Unit } from "./game/types";
 import { CLASSES, RACES, TRAITS } from "./game/data";
 import { Run, EncounterReport, PARTY_SIZE } from "./game/descent";
 import { Encounter } from "./game/encounter";
@@ -22,7 +22,7 @@ let board: BoardView | null = null;
 let report: EncounterReport | null = null;
 let meta: Meta = loadMeta();
 
-let pendingFeature: { id: string; needs: "ally" | "enemy" | "none" } | null = null;
+let pendingFeature: { id: string; needs: "ally" | "enemy" | "none" | "hex" } | null = null;
 let enemyTimer: number | null = null;
 
 // crest art that 404s / fails to decode -> fall back to the SVG role glyph
@@ -98,8 +98,8 @@ function renderTitle(): void {
     </div>
     <p class="muted">The Gordion Pit — the knot no one could untie, so they started cutting <i>down</i> through it.
     Roll a warband of nobodies, draft ${PARTY_SIZE}, see how deep they get before the Deep keeps them.</p>
-    <div class="crestrow">${["fighter", "rogue", "ranger", "cleric"].map((c) => crest(c, "lg")).join("")}</div>
-    <p class="eyebrow">Fighter · Rogue · Ranger · Cleric</p>
+    <div class="crestrow crestrow--wrap">${CLASS_IDS.map((c) => crest(c, "md")).join("")}</div>
+    <p class="eyebrow">13 classes · draft any of them</p>
 
     <div class="panel col">
       <span class="eyebrow">Run seed — blank for random</span>
@@ -337,14 +337,18 @@ function onHexClick(h: Hex): void {
   const target = enc.unitAt(h);
 
   if (pendingFeature) {
-    const wantEnemy = pendingFeature.needs === "enemy";
-    if (target && (wantEnemy ? target.team === "enemy" : target.team === "player")) {
-      if (pendingFeature.id === "__shove") {
-        if (enc.shoveTargets(u).includes(target)) enc.shove(target.id);
-      } else if (pendingFeature.id === "__attack") {
-        if (enc.attackTargets(u).includes(target)) enc.doAttack(target.id);
-      } else {
-        enc.useFeature(pendingFeature.id, target.id);
+    if (pendingFeature.needs === "hex") {
+      if (!target) enc.teleport(h);
+    } else {
+      const wantEnemy = pendingFeature.needs === "enemy";
+      if (target && (wantEnemy ? target.team === "enemy" : target.team === "player")) {
+        if (pendingFeature.id === "__shove") {
+          if (enc.shoveTargets(u).includes(target)) enc.shove(target.id);
+        } else if (pendingFeature.id === "__attack") {
+          if (enc.attackTargets(u).includes(target)) enc.doAttack(target.id);
+        } else {
+          enc.useFeature(pendingFeature.id, target.id);
+        }
       }
     }
     pendingFeature = null;
@@ -507,7 +511,7 @@ function wirePlayerControls(): void {
     b.addEventListener("click", () => {
       if (!enc) return;
       const id = b.dataset.feat!;
-      const needs = b.dataset.needs as "ally" | "enemy" | "none";
+      const needs = b.dataset.needs as "ally" | "enemy" | "none" | "hex";
       if (needs === "none") { enc.useFeature(id); refreshEncounter(); }
       else { pendingFeature = { id, needs }; refreshEncounter(); }
     });

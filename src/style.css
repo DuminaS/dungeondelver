@@ -138,21 +138,22 @@ input[type="text"]:focus-visible { outline: 2px solid var(--gold); outline-offse
 .attr.bad  { color: var(--bad);  border-color: #4c2723; }
 .attr.key  { box-shadow: inset 0 -2px 0 var(--gold); }
 
-/* class crest medallions (public/logos/<id>.webp) */
+/* class crest medallions (public/logos/<id>.webp — gold emblem on flat navy) */
 .crest {
   position: relative; flex: none; display: inline-grid; place-items: center;
-  background: radial-gradient(120% 120% at 50% 30%, #12263c, #0a1a2e);
+  background: #041a2f;
   border: 1px solid var(--iron-2); border-radius: 8px;
   overflow: hidden;
 }
-.crest .ic { position: absolute; width: 55%; height: 55%; color: var(--gold); opacity: 0.9; }
-.crest-img { position: relative; width: 84%; height: 84%; object-fit: contain; }
+.crest .ic { position: absolute; width: 52%; height: 52%; color: var(--gold); opacity: 0.85; }
+.crest-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .crest-img--dead { display: none; }
 .crest--xs { width: 22px; height: 22px; border-radius: 5px; }
 .crest--sm { width: 42px; height: 42px; }
 .crest--md { width: 54px; height: 54px; border-radius: 10px; }
 .crest--lg { width: 92px; height: 92px; border-radius: 14px; }
 .crestrow { display: flex; gap: 8px; }
+.crestrow--wrap { flex-wrap: wrap; }
 
 /* status glyph strip */
 .conds { display: inline-flex; gap: 3px; align-items: center; }
