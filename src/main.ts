@@ -6,7 +6,8 @@ import { Run, EncounterReport, PARTY_SIZE } from "./game/descent";
 import { Encounter } from "./game/encounter";
 import { BoardView } from "./ui/render";
 import { loadMeta, Meta, recordRun } from "./ui/meta";
-import { CONDITION_ICON, icon, logStyle, roleIcon, stat } from "./ui/icons";
+import { CONDITION_ICON, icon, logStyle, stat } from "./ui/icons";
+import { crest } from "./ui/crests";
 
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
@@ -23,6 +24,16 @@ let meta: Meta = loadMeta();
 
 let pendingFeature: { id: string; needs: "ally" | "enemy" | "none" } | null = null;
 let enemyTimer: number | null = null;
+
+// crest art that 404s / fails to decode -> fall back to the SVG role glyph
+app.addEventListener(
+  "error",
+  (e) => {
+    const t = e.target as HTMLElement;
+    if (t?.classList?.contains("crest-img")) t.classList.add("crest-img--dead");
+  },
+  true,
+);
 
 // ---------------------------------------------------------------- helpers
 
@@ -51,9 +62,10 @@ function characterCard(c: Character, opts: { pick?: boolean } = {}): string {
   return `
   <div class="ucard ${opts.pick ? "ucard--pick" : "ucard--player"}" data-id="${c.id}" title="${esc(cls.blurb)}">
     <div class="ucard__head">
-      <div>
+      ${crest(c.classId, "sm")}
+      <div style="flex:1;min-width:0">
         <div class="ucard__name">${esc(c.name)}</div>
-        <div class="ucard__kind">${roleIcon(c.classId)} ${esc(race.name)} ${esc(cls.name)}</div>
+        <div class="ucard__kind">${esc(race.name)} ${esc(cls.name)}</div>
       </div>
       <span class="ucard__lvl">L${c.level}</span>
     </div>
@@ -86,6 +98,8 @@ function renderTitle(): void {
     </div>
     <p class="muted">The Gordion Pit — the knot no one could untie, so they started cutting <i>down</i> through it.
     Roll a warband of nobodies, draft ${PARTY_SIZE}, see how deep they get before the Deep keeps them.</p>
+    <div class="crestrow">${["fighter", "rogue", "ranger", "cleric"].map((c) => crest(c, "lg")).join("")}</div>
+    <p class="eyebrow">Fighter · Rogue · Ranger · Cleric</p>
 
     <div class="panel col">
       <span class="eyebrow">Run seed — blank for random</span>
@@ -430,9 +444,12 @@ function activePanel(u: Unit): string {
 
   return `
   <div class="active-panel">
-    <div class="spread">
-      <span class="active-panel__name">${esc(u.name)}</span>
-      <span class="conds">${conds}</span>
+    <div class="row" style="gap:10px;flex-wrap:nowrap">
+      ${crest(unitClassId(u), "md")}
+      <div style="flex:1;min-width:0">
+        <div class="active-panel__name">${esc(u.name)}</div>
+        <span class="conds">${conds}</span>
+      </div>
     </div>
     <div class="statrow">
       ${stat("hp", `${u.hp}/${u.maxHp}`, u.hp <= u.maxHp * 0.25 ? "bad" : u.hp <= u.maxHp * 0.5 ? "warn" : "good")}
@@ -539,6 +556,10 @@ function roster(): string {
 function initialOf(unitId: string): string {
   const u = enc?.units.find((z) => z.id === unitId);
   return u ? (u.name[0] ?? "?").toUpperCase() : "?";
+}
+
+function unitClassId(u: Unit): string {
+  return u.tags.find((t) => t in CLASSES) ?? "fighter";
 }
 
 function renderLog(): void {

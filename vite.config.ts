@@ -1,7 +1,20 @@
 import { defineConfig } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+
+/** class crests to inline as data URIs for the single-file artifact build */
+const INLINE_CRESTS = ["fighter", "rogue", "ranger", "cleric"];
+
+function crestData(single: boolean): string {
+  if (!single) return "null";
+  const out: Record<string, string> = {};
+  for (const id of INLINE_CRESTS) {
+    const p = new URL(`./public/logos/${id}.webp`, import.meta.url);
+    if (existsSync(p)) out[id] = `data:image/webp;base64,${readFileSync(p).toString("base64")}`;
+  }
+  return JSON.stringify(out);
+}
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
@@ -27,6 +40,7 @@ export default defineConfig(({ mode }) => {
     plugins: single ? [viteSingleFile()] : [],
     define: {
       __APP_VERSION__: JSON.stringify(version),
+      __CRESTS__: crestData(single),
     },
     build: {
       outDir: single ? "dist-single" : "dist",

@@ -51,9 +51,13 @@ Icons take `currentColor`, so an icon always matches the colour of its label/sta
 | class blurb paragraph in the pick list | card `title=` tooltip only |
 | log run-on sentences | `icon + short fragment`, colour = outcome |
 
+## Class crests
+
+Each class has an emblem — gold on navy — in [`public/logos/`](../public/logos/) (`<id>.webp`, transparent, 13 classes for the design-for roster). The UI renders it as a **navy medallion**: a roundel with the emblem over a `#0a1a2e` gradient framed in `--iron-2`, so the navy+gold heraldry reads as a deliberate crest against the brown panels. It appears on recruit/party cards (42px, in the header), on the combat active-unit panel (54px), and as a row on the title screen (92px). If a `.webp` is missing the medallion falls back to the SVG role glyph ([`src/ui/crests.ts`](../src/ui/crests.ts)). Live-class crests are inlined as data URIs for the single-file build.
+
 ## Components
 
-- **`.ucard`** (recruit / party) — left border = team; name (display) · role icon + race/class · `statrow` · attr grid · trait tags. No paragraphs.
+- **`.ucard`** (recruit / party) — left border = team; class crest + name (display) + race/class · `statrow` · attr grid · trait tags. No paragraphs.
 - **`.turnbar`** — whose turn, round counter. Blue inset for player, rust for enemy.
 - **`.active-panel`** — gold border. Name · condition glyph strip · `statrow` · pips · action grid (icon + 1 word) · feature grid · `End turn` / `✕`.
 - **`.roster` `.urow`** — 3px team colour bar · name · HP bar (notched at 25/50%) · right rail: HP number (coloured) and, for enemies, the **intent chip** (`⚔→K` / `»→K`). Downed rows dim and collapse to `✝ down — n/3`.
