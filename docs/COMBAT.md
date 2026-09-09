@@ -51,7 +51,7 @@ Diagonal-free hexes mean no movement-cost fudging. A* pathfinding over the cost 
   - **Three-quarter cover (+5 AC):** two or more such blockers, or a `Lever`/`Chest`-type solid feature.
   - **Total cover:** no LOS, cannot be targeted directly (AoE templates can still catch the tile).
 - **High ground:** attacker elevation `>` target elevation → ranged attacks have **advantage**; melee attacks get `+1` to hit. Target elevation `>` attacker by 2+ → attacker has **disadvantage** on ranged.
-- **Vision / fog:** default floors are fully visible. `Darkness` modifier: vision radius `= 3 + WIS mod` per delver, unioned; enemies outside vision don't show intent. Torches/light spells extend it.
+- **Vision / fog:** default floors are fully visible. `Darkness` modifier: vision radius `= 3 + WIS mod` per chaindiver, unioned; enemies outside vision don't show intent. Torches/light spells extend it.
 
 ---
 
@@ -184,10 +184,10 @@ Archetype weight profiles:
 
 ## 9. Combat math reference (v1 tuning targets)
 
-- Level-1 delver: `~9–13` HP, AC `12–17`, `+4..+6` to hit, `~5–9` damage per hit.
+- Level-1 chaindiver: `~9–13` HP, AC `12–17`, `+4..+6` to hit, `~5–9` damage per hit.
 - Level-1 trash enemy: `~7` HP, AC `12`, `+3` to hit, `~4` damage.
-- **Target:** a balanced 3-delver party clears a fair Floor-1 Slay in `4–6` rounds losing `~25–40%` of total HP and `0` delvers (if played well), `1` delver (sloppy).
+- **Target:** a balanced 3-chaindiver party clears a fair Floor-1 Slay in `4–6` rounds losing `~25–40%` of total HP and `0` chaindivers (if played well), `1` chaindiver (sloppy).
 - Hit chance sweet spot: player attacks land `~65–75%` vs. trash, `~50–60%` vs. elites. Never design a "must-hit" turn without a fallback.
 - Crit rate `~5%` base (nat 20), up to `~15%` for crit-fisher builds — crits should swing a fight, not end it outright at low level.
-- **TTK guardrail:** no enemy at a given depth should be able to take a full-HP delver of the expected level from 100→0 in a single turn without a telegraphed windup. Bursty deaths must be *seen coming*.
-- Simulate: 10k headless encounters per depth band per patch; watch delver-death-rate, round-count, and "unavoidable damage" distributions.
+- **TTK guardrail:** no enemy at a given depth should be able to take a full-HP chaindiver of the expected level from 100→0 in a single turn without a telegraphed windup. Bursty deaths must be *seen coming*.
+- Simulate: 10k headless encounters per depth band per patch; watch chaindiver-death-rate, round-count, and "unavoidable damage" distributions.

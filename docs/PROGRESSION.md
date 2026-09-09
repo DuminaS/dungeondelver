@@ -21,27 +21,32 @@ At class levels `4, 8, 12, 16, 19` (per the class, standard 5e cadence): `+2` to
 
 ## 2. Leveling
 
-### 2.1 XP vs. milestone
+### 2.1 XP (default)
 
-**Default: milestone.** Delvers gain a level on a fixed floor cadence, capped at current `W`:
+Each chaindiver has their **own XP bar**. XP is granted at encounter end:
 
-| Guild `W` tier | Cadence |
-|---|---|
-| `W = 3` | +1 level per 2 floors cleared (so ~L3 by floor 4–5) |
-| `W = 5` | +1 per 2 floors |
-| `W = 8` | +1 per 1.5 floors (alternating 1/2) |
-| `W = 11+` | +1 per floor, slowing to +1 per 2 past level 12 |
+```
+kill_value       → 100% to the chaindiver who landed the killing blow,
+                   + a 25% "assist" split among others who damaged it this fight
+objective_share  → base(depth) split evenly across chaindivers who were deployed
+                   and still conscious at objective completion
+bonus_objective  → flat, split evenly across all deployed survivors
+```
 
-Elite/Boss floors count double toward the cadence. A delver drafted mid-run (rare, via events) enters at `party median level − 1`.
+- `base(depth)` and `kill_value` scale with floor depth so leveling roughly tracks descent speed regardless of how many fights you skip.
+- **Level thresholds:** standard 5e-ish curve (`0 / 300 / 900 / 2700 / 6500 / …`), tuned so a "normal" descent hits ~L3 by Deep 4–5, ~L5 by Deep 8, ~L8 by Deep 13.
+- A chaindiver **benched** for a floor, or **drafted mid-run** via an event, earns nothing that floor and starts behind — deliberate. Mid-run recruits enter with XP equal to `party_min_xp`.
+- **Surplus** past current `W`: XP keeps accumulating on the bar but no level is granted; on run end, XP earned above the cap converts to **Renown** at a poor rate (`~1 Renown / 500 wasted XP`).
+- **Manual vs. auto:** default auto-levels a chaindiver the instant their bar fills (with a "you leveled — choose your class" prompt at the next safe moment: aftermath screen or Rest Site). A Covenant toggle lets you hold levels to spend deliberately.
 
-**Optional: XP mode** (Covenant). Per-encounter XP = `objective_base(depth) + Σ kill_value + bonus_objective`. Shared party pool; auto-spent to level the lowest-level eligible delver first (configurable to manual). Surplus XP above `W` converts at a poor rate to **Renown**.
+**Milestone mode** (Covenant option, not default): replace XP bars with a fixed cadence — `+1 level per 2 floors cleared`, Elite/Boss floors counting double, capped at `W`. Less bookkeeping; loses the "who did the work" texture.
 
 ### 2.2 What a level-up gives
 
-On gaining a delver level, the player chooses **which class** to advance (§3), then resolves that class level:
+On gaining a chaindiver level, the player chooses **which class** to advance (§3), then resolves that class level:
 
 - **HP:** `+ (avg of hit die + CON mod)`, min 1. (avg: d6→4, d8→5, d10→6, d12→7.)
-- **Proficiency bonus** tracks **total delver level**, not class level: `+2` (1–4), `+3` (5–8), `+4` (9–12), `+5` (13–16), `+6` (17–20).
+- **Proficiency bonus** tracks **total chaindiver level**, not class level: `+2` (1–4), `+3` (5–8), `+4` (9–12), `+5` (13–16), `+6` (17–20).
 - **Class features** for that class at its new class level (see [CONTENT.md](CONTENT.md) class tables).
 - **Subclass** choice if this class level is its subclass level (usually 3) and prereqs are met (§3.3).
 - **ASI/Feat** if this class level is an ASI level for that class.
@@ -50,16 +55,15 @@ On gaining a delver level, the player chooses **which class** to advance (§3), 
 ### 2.3 Level cap `W`
 
 - `W` is a **Guild-wide ceiling**, upgraded `3 → 5 → 8 → 11 → 14 → 17 → 20` via the Training Yard.
-- No delver may exceed `W` regardless of XP/floors. Milestone leveling simply stops; XP mode banks surplus as Renown.
-- Training Yard tier riders:
-  - **T1 (W=5):** subclasses unlocked.
-  - **T2 (W=8):** 1st Feat slot enabled (ASIs can be taken as Feats).
-  - **T3 (W=11):** multiclassing unlocked (before this, a delver is single-class for the run).
-  - **T4 (W=14):** "Veteran Start" — recruits roll at level `2`.
-  - **T5 (W=17):** Veteran Start level `3`; subclass-at-1 options open.
-  - **T6 (W=20):** capstone class features (level 20) enabled; "Legend" retirees keep up to level `15` when re-hired (else `10`).
+- No chaindiver may exceed `W` regardless of XP/floors. XP surplus banks as Renown (§2.1); milestone mode simply stops.
+- **Multiclassing, subclasses, and feats are always available** (subject to their own Admission Requirements / ASI cadence — §3, §4). They are *not* gated behind `W` tiers; the user's design is Pathfinder-style "always choose from the list at level-up." `W` only controls how *high* you can climb.
+- Training Yard tier riders (flavor/economy, not identity gates):
+  - **T3 (W=11):** "Veteran Start" I — recruits roll at level `2`.
+  - **T4 (W=14):** Veteran Start II — recruits roll at level `3`.
+  - **T5 (W=17):** re-hired Legends keep their level up to `12` (else `8`).
+  - **T6 (W=20):** capstone (level-20) class features enabled; re-hired Legends keep up to level `15`.
 
-Design note: early `W` keeps the game a *tight tactical* game where the draft and positioning dominate. Late `W` deliberately tips toward a power fantasy that enemy depth-scaling (COMBAT.md §9, DESIGN.md §11) is tuned to chase but never fully catch.
+Design note: early `W` keeps the game a *tight tactical* game where the draft and positioning dominate — you simply can't get high enough to multiclass deeply or reach most subclass payoffs. Late `W` tips toward a power fantasy that enemy depth-scaling (COMBAT.md §9, DESIGN.md §11) chases but never fully catches.
 
 ---
 
@@ -74,23 +78,34 @@ Each class defines: hit die, armor/weapon proficiencies, saving-throw proficienc
 
 ### 3.2 The multiclass rule
 
-- **Unlocked at `W = 11`** (Training Yard T3). Below that, a delver picks a class at draft and is stuck with it.
-- Once unlocked: **every level-up, free choice** of which known-or-new class to advance. *No ability-score prerequisites* in v1 — the cost is purely opportunity cost:
-  - Class features are gated by **class level**, not delver level. A Fighter 5 / Wizard 1 has Extra Attack but only 1st-level spells.
-  - **Proficiencies** from a second class are the *reduced multiclass set* (5e-style: e.g. multiclassing into Fighter grants light/medium armor, shields, martial weapons — not saves; into Wizard grants nothing but the spellcasting).
-  - ASIs are per-class-level, so splitting delays them.
-- **Optional Hardcore rule** (Covenant): re-adds 5e stat prerequisites (`13` in the key stat of both the class you leave and the one you enter).
-- **Subclass per class:** a multiclassed delver can hold multiple subclasses (one per class that has reached its subclass level).
+- **Always available.** Every level-up, the player freely chooses which class to advance — the one(s) the chaindiver already has, or a new one.
+- Advancing a class you're **already in** is free.
+- Taking your **first** level in a **new** class requires meeting its **Admission Requirement** — an any-of/all-of list mixing **a stat threshold**, **a skill proficiency**, and **a trait / background / race qualifier**. Deliberately loose: a typical rolled chaindiver qualifies for 2–3 of the six, almost never all six, and a specialist (dumped mental stats, no relevant skills) may be locked to just their drafted class.
+
+| Class | Admission Requirement (meet **any one**) |
+|---|---|
+| **Fighter** | STR ≥ 13 · or DEX ≥ 13 · or Athletics/Intimidation proficiency · or Soldier background · or a `#berserk`/martial trait (*Born Fighter*, *Duelist's Riposte*, *Grappler*) |
+| **Rogue** | DEX ≥ 13 · or Stealth or Sleight of Hand proficiency · or Urchin/Charlatan background · or `Wiry`/`Deserter's Eyes`/`Kleptomaniac` trait |
+| **Wizard** | INT ≥ 13 · or Arcana proficiency · or Sage background · or `Arcane Dabbler` trait · or Tiefling/Elf race |
+| **Cleric** | WIS ≥ 13 · or Religion proficiency · or Acolyte background · or `Zealot`/`Marked by the Deep`/`Field Medic` trait |
+| **Ranger** | DEX ≥ 13 **and** WIS ≥ 11 · or Survival + Perception proficiency · or Hunter/Miner background · or `Keen-Eyed`/`Tunnel Sense` trait |
+| **Barbarian** | STR ≥ 13 · or CON ≥ 15 · or Athletics proficiency · or `Ironhide`/`Giantblood`/`Bloodlust`/`Adrenaline` trait · or Half-Orc/Goliath race |
+
+- **Optional Hardcore rule** (Covenant): tighten every Admission Requirement to "the stat threshold only" (5e-style).
+- Class features are gated by **class level**, not chaindiver level. A Fighter 5 / Wizard 1 has Extra Attack but only 1st-level spells.
+- **Proficiencies** from a second class are the *reduced multiclass set* (5e-style: multiclassing into Fighter grants light/medium armor, shields, martial weapons — not saves; into Wizard grants only the spellcasting).
+- ASIs are per-class-level, so splitting delays them — the ongoing opportunity cost on top of the gate.
+- A multiclassed chaindiver holds **one subclass per class** that has reached its subclass level.
 
 ### 3.3 Subclasses
 
-- Chosen at the class's **subclass level** (Cleric/Sorcerer/Warlock: 1; most: 3; a few: 2).
-- **Prerequisites** where flavorful — a *soft gate* using the delver's traits / background / skills / stats, e.g.:
+- Chosen at the class's **subclass level** (Cleric/Sorcerer/Warlock: 1; most: 3; a few: 2). Always available at that level — not `W`-gated.
+- **Prerequisites** use the same mixed gate as Admission Requirements — stat *or* skill *or* trait/background — where flavorful:
   - *Eldritch Knight* (Fighter): INT `≥ 13` **or** the `Arcane Dabbler` trait / Sage background.
   - *Assassin* (Rogue): proficiency in Stealth **and** (Criminal background **or** `Cold-Blooded` trait).
   - *Berserker* (Barbarian): no gate (it's the "default").
   - *Death Domain* (Cleric): only via a Shrine bargain or the `Marked by the Deep` trait — not offered in normal draft.
-- If no subclass prereq is met at the subclass level, the delver picks from the ungated subset (every class has `≥2` ungated options) or **defers** one level (max once).
+- If no subclass prereq is met at the subclass level, the chaindiver picks from the ungated subset (every class has `≥2` ungated options) or **defers** one level (max once).
 - Subclasses grant features at set class levels (3/6/10/14/18 typical).
 
 ### 3.4 Combined-slots multiclass casting (simplified)
@@ -107,7 +122,7 @@ To avoid 5e's multiclass spell-slot table pain:
 
 ## 4. Feats
 
-- Enabled at `W = 8` (Training Yard T2). Taken **in place of an ASI**.
+- Always available (not `W`-gated). Taken **in place of an ASI** — so a chaindiver's first feat opportunity is that class's first ASI level (usually class level 4), which at low `W` may never come. That's the natural gate.
 - v1 feat pool (~12), design-for ~30. Each is a build verb, not a stat stick.
 
 | Feat | Effect (v1) |
@@ -131,7 +146,7 @@ Traits can *grant* feats (e.g. `Born Fighter` → free Tough), and a Feat can be
 
 ## 5. Spellcasting (v1 simplified)
 
-- **Cantrips:** at-will, scale with total delver level (`1d10` firebolt → `2d10` at L5, etc.).
+- **Cantrips:** at-will, scale with total chaindiver level (`1d10` firebolt → `2d10` at L5, etc.).
 - **Slots:** by `L_cast` (§3.4) on the standard table. Slots refresh on a **Rest Site** short rest is *partial* (regain `⌈L_cast/2⌉` slot-levels worth); a Rest Site "long camp" event or a Hollow floor refreshes all.
 - **Preparation:** Wizards prepare from a spellbook (found/bought spells expand it); Clerics/Druids/Paladins prepare from their full list; Sorcerers/Bards/Rangers/Warlocks know a fixed set.
 - **Concentration:** one concentration spell at a time; taking damage → CON save `DC max(10, ½ damage)` or it drops.
@@ -149,7 +164,7 @@ Traits can *grant* feats (e.g. `Born Fighter` → free Tough), and a Feat can be
 | **Rest Site — long camp** (event choice) | Full HP, full slots, clear one non-permanent condition, but costs the "event" slot (no gear-swap / no training that visit). |
 | **Hollow floor** | Full HP + slots, no cost. Rare, usually post-Boss. |
 | **Downed & survived** | Stabilize at 1 HP, gain an **Injury** (DESIGN.md §5.5) — only removed at the Guild Infirmary. |
-| **Level-up** | Heal to full (milestone mode only; a small carrot for hitting the cadence). |
+| **Level-up** | Heal `⌈½ max HP⌉` (the level-up "second wind"; milestone mode heals to full instead, as a cadence carrot). |
 
 ---
 
@@ -167,7 +182,7 @@ Illustrative cost curve (Gold / Renown / Materials). Tune in sim.
 | **Infirmary** | 500 / 1500 | Barracks T1 |
 | **Quartermaster** (stash 1→3) | 800 / 2500 | — |
 | **Scrying Pool** | 400 / 1200 | — |
-| **Memorial / Legacy Boons** | 600 / 1800 | 1 dead delver reached Deep 10 |
+| **Memorial / Legacy Boons** | 600 / 1800 | 1 dead chaindiver reached Deep 10 |
 | **Black Market** | 500 | Renown 20 |
 | **Champion's Rest** | 1000 / 3000 | 1 successful retirement |
 
@@ -178,4 +193,4 @@ Illustrative cost curve (Gold / Renown / Materials). Tune in sim.
 - *Coward's Bell* — one free party-wide Disengage per floor.
 - *The Drowned Ledger* — banked gold earns 5%/run interest, but wipes cost you 10% of the bank.
 - *Ninefold Contract* — draft pool always contains one guaranteed rare-race recruit.
-- *The Last Torch* — the first delver to die each run leaves a ghost that fights for you until the next floor.
+- *The Last Torch* — the first chaindiver to die each run leaves a ghost that fights for you until the next floor.

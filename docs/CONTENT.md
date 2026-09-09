@@ -139,7 +139,7 @@ Budget: each recruit rolls a trait point total (`0–6`, weighted low); minor = 
 - **Tunnel Sense** (minor) — gain **Read the Stone** (Action, reveal all hidden traps/hazards within 5 hexes).
 
 ### Drawback (usually attached to defining traits)
-- **Doomed** — auto-dies when reduced to being the last living delver.
+- **Doomed** — auto-dies when reduced to being the last living chaindiver.
 - **Bloodlust** — must attack the nearest enemy if any is within Move+reach (no Dodge/Help/Disengage while an enemy is visible).
 - **Frail** — `−3` max HP/level.
 - **Greenhorn** — `−2` initiative; disadvantage on the first save you make each encounter.
@@ -148,11 +148,11 @@ Budget: each recruit rolls a trait point total (`0–6`, weighted low); minor = 
 
 ### Quirk (economy / meta flavor with an edge)
 - **Lucky** (major) — 1/floor reroll any one die (yours, or an enemy's vs. you).
-- **Debt-Bonded** (quirk) — free to draft; Guild skims 20% of this delver's personal loot — **you keep it even on a wipe**.
+- **Debt-Bonded** (quirk) — free to draft; Guild skims 20% of this chaindiver's personal loot — **you keep it even on a wipe**.
 - **Heirloom Bearer** (quirk) — start with a random uncommon weapon; it auto-salvages on your death (can't be left on the floor).
 - **Glory Hound** (quirk) — `+50%` Renown from kills you personally land; `−2` to hit while an ally is adjacent (won't share).
 - **Deserter's Eyes** (quirk) — always knows where the current floor's Extraction/exit is; `−1` to hit on the turn you move away from it.
-- **Cheap Date** (quirk) — Market prices `−25%` for this delver's gear; refuses to carry more than 2 salvage slots.
+- **Cheap Date** (quirk) — Market prices `−25%` for this chaindiver's gear; refuses to carry more than 2 salvage slots.
 
 ---
 
@@ -165,7 +165,7 @@ Budget: each recruit rolls a trait point total (`0–6`, weighted low); minor = 
 | **Acolyte** | Religion, Insight | 1 free Cleric cantrip (WIS); meets some Cleric/Paladin gates. |
 | **Charlatan** | Deception, Persuasion | Once/run, reroll a Market's stock; better event outcomes on social choices. |
 | **Miner** | Athletics, Survival | Sees hidden collapsing-floor tiles 1 round earlier; `+2` vs. being buried; finds `+1` Materials per floor. |
-| **Disgraced Noble** | History, Persuasion | Start with `+50` gold; the retirement bonus is `+15%` for a party containing this delver. |
+| **Disgraced Noble** | History, Persuasion | Start with `+50` gold; the retirement bonus is `+15%` for a party containing this chaindiver. |
 | **Sage** | Arcana, Investigation | Counts as `Arcane Dabbler` for subclass gates; identifies gear properties for free. |
 | **Hunter** | Survival, Perception | Advantage on initiative; `+1d6` on the first ranged attack each encounter. |
 
@@ -198,9 +198,9 @@ Per depth band. Stat shorthand: `HP / AC / +hit / dmg / Speed / archetype`. Tags
 ### Deep 8+ (tier 3) — samples
 | Monster | Stats | Notes |
 |---|---|---|
-| **Abyssal Maw** | 55 / 15 / +8 / 3d8 swallow (Restrained, `2d6`/turn until STR save) / 5 / Elite `#deep` | Board-controlling; swallowed delver is out of position and taking damage. |
+| **Abyssal Maw** | 55 / 15 / +8 / 3d8 swallow (Restrained, `2d6`/turn until STR save) / 5 / Elite `#deep` | Board-controlling; swallowed chaindiver is out of position and taking damage. |
 | **Wraith of the Ledger** | 44 / 16 / +8 / 2d8 necrotic + max HP reduction / 8 / Skirmisher `#undead` | Phases through Walls; drains banked-gold-per-hit as a flavor threat (steals in-run gold). |
-| **The Warden** (Deep 5 boss) | 120 / 17, 3 phases | P1: shield-wall + adds; P2 (66%): arena floods, low tiles become Water; P3 (33%): shatters cover, gains Sweep + a 1-round "execute" windup on the lowest-HP delver. |
+| **The Warden** (Deep 5 boss) | 120 / 17, 3 phases | P1: shield-wall + adds; P2 (66%): arena floods, low tiles become Water; P3 (33%): shatters cover, gains Sweep + a 1-round "execute" windup on the lowest-HP chaindiver. |
 
 **Design-for:** ~10 monsters/tier through tier 5, plus 4 hand-authored bosses (Deep 5/10/15/20) and a procedural boss assembler beyond.
 

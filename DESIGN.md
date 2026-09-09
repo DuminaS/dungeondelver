@@ -17,7 +17,7 @@ This document is the source of truth for *what the game is*. Companion docs go d
 2. **Every fight is a puzzle with a body count.** Hand-authored feel from procedural parts: elevation, choke points, hazards and objectives should make each arena ask a different question. No "walk up and auto-attack" floors.
 3. **The draft is a game before the game.** Team composition is a genuine decision under uncertainty. You are gambling on synergy with incomplete information.
 4. **Greed is the core loop.** Descend further = better loot = higher chance the run ends with nothing. "Use it, send it, or lose it" is the emotional engine.
-5. **Loss is content.** A dead delver becomes a Barracks entry, a salvaged weapon, a cautionary tale, a named modifier on a future run. The game should make you *want* to read the obituary.
+5. **Loss is content.** A dead chaindiver becomes a Barracks entry, a salvaged weapon, a cautionary tale, a named modifier on a future run. The game should make you *want* to read the obituary.
 6. **Deterministic and legible.** Given a seed and inputs, the sim is reproducible. Hit chances, damage ranges, threat ranges and AI intent are always visible before you commit. Randomness is in the *setup and the dice*, never in hidden rules.
 
 ---
@@ -26,9 +26,9 @@ This document is the source of truth for *what the game is*. Companion docs go d
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  GUILD (persistent meta-layer — "the Pit")                           │
+│  GUILD (persistent meta-layer — "The Gordion Pit")                   │
 │    • Roster of the dead (Barracks)   • Upgrade tree   • Vault/bank    │
-│    • Records: deepest floor, richest run, longest-lived delver       │
+│    • Records: deepest floor, richest run, longest-lived chaindiver       │
 └───────────────┬─────────────────────────────────────────────────────┘
                 │  START A RUN
                 ▼
@@ -64,7 +64,7 @@ A run is expected to last **25–50 minutes** at mid-game mastery: roughly 8–1
 
 ## 3. The Guild (meta-layer)
 
-The framing: you have inherited / been sentenced to run a **ruined arena-settlement at the mouth of the Descent** — call it *the Pit*, *the Maw*, *Gallowsreach*, *the Sinkhole Concession* (name TBD, see §12). It is falling apart. Every run funds another plank of its reconstruction, and a rebuilt Pit produces better delvers and better options.
+The framing: you have inherited / been sentenced to run a **ruined arena-settlement at the mouth of the Descent** — canonically **The Gordion Pit** (the knot no one could untie, so they cut *down* through it instead). The player **renames it during Guild creation** (§3.1); "The Gordion Pit" is the default and the name the lore/Overseer text uses. It is falling apart. Every run funds another plank of its reconstruction, and a rebuilt Pit produces better chaindivers and better options.
 
 ### 3.1 Guild creation (one-time, first launch)
 
@@ -73,9 +73,9 @@ The player makes a handful of choices that set the campaign's flavor and startin
 | Choice | Options (examples) | Effect |
 |---|---|---|
 | **Charter** (the Pit's origin) | *Penal Colony* / *Gladiator Guild* / *Scholars' Expedition* / *Doomsday Cult* / *Merchant Concession* | Starting upgrade, one always-on rule, cosmetic theme. e.g. Penal Colony: recruits are free but start with a negative trait; Merchant Concession: +25% loot value, −1 starting party slot. |
-| **Sigil & name** | Free text + icon | Cosmetic; appears on records and gravestones. |
+| **Name the Pit + sigil** | Free text (defaults to *The Gordion Pit*) + icon | The settlement's name and crest — appears in the HUD, on records, on gravestones, in Overseer narration. Purely flavor, but it's *your* Pit. |
 | **First Overseer** (your avatar / the meta-narrator) | A portrait + a passive | Minor global passive, a voice for event text. |
-| **Difficulty covenant** | *Delver* / *Warden* / *Abyssal* / custom sliders | Enemy scaling, salvage rates, permadeath strictness (see §11). |
+| **Difficulty covenant** | *Chained* / *Warden* / *Abyssal* / custom sliders | Enemy scaling, salvage rates, permadeath strictness (see §11). |
 
 Charters are the "class" of your whole campaign and are the main source of build-around identity at the meta level. Ship 3, design for ~8.
 
@@ -94,7 +94,7 @@ All four are **tiered tracks**, not single toggles. Costs scale; each tier can c
 
 1. **Recruitment Hall → draft pool size `N`.** `N`: 3 → 4 → 5 → 6 → 7 → 8. Higher tiers also add: guaranteed class diversity in the pool (no dupes), then a visible "next reroll" preview, then the ability to *bench* one rejected recruit per draft for later.
 2. **Barracks Expansion → party size `X`.** `X`: 3 → 4 → 5 → 6. Each `+1` is expensive and gated behind a deepest-floor record. Party size is the single biggest power lever — treat it as a mid/late-game goal, not an early buy.
-3. **Training Yard → level cap `W`.** `W`: 3 → 5 → 8 → 11 → 14 → 17 → 20. See §5.4. Also unlocks: subclass access (tier 2), feat slots (tier 3+), the "veteran start" option (deep tiers: recruits roll at level > 1).
+3. **Training Yard → level cap `W`.** `W`: 3 → 5 → 8 → 11 → 14 → 17 → 20. See §5.4. Multiclassing, subclasses and feats are **not** gated by this track (they're always available, per the player's Pathfinder-style intent); `W` only sets how high a chaindiver can climb. Deep tiers add the "Veteran Start" rider (recruits roll at level 2, then 3) and raise the level a re-hired Legend keeps.
 4. **Recruit Pedigree → base stat floor for new level-1s.** Raises the minimum of rolled stats and/or grants free background skills / a guaranteed positive trait slot. Keeps the late-game draft from feeling like garbage-picking.
 
 ### 3.4 Other Guild upgrades (brainstorm pool)
@@ -103,7 +103,7 @@ All four are **tiered tracks**, not single toggles. Costs scale; each tier can c
 - **Infirmary** — a between-runs slot to heal an *injury* off a retired Legend so you can redeploy them.
 - **Quartermaster** — a persistent stash of a few gear items that carry between runs (small, e.g. 3 slots at max).
 - **Scrying Pool** — reveal an extra candidate next-floor, or reveal one floor deeper, or see floor modifiers before choosing.
-- **Memorial** — converts Barracks dead into **Legacy Boons**: a fallen delver who reached floor 10+ leaves a bonus that a future recruit of the same class can inherit (a heirloom weapon, a signature ability, a stat bump).
+- **Memorial** — converts Barracks dead into **Legacy Boons**: a fallen chaindiver who reached floor 10+ leaves a bonus that a future recruit of the same class can inherit (a heirloom weapon, a signature ability, a stat bump).
 - **Black Market** — unlocks the Market floor type and improves its stock.
 - **Cartographer** — small chance each run to start with a partial map of the first few floors.
 - **Champion's Rest** — retire more than the party cap into "Legends"; hire a Legend back into a future draft pool for gold (they keep their level up to a cap).
@@ -154,7 +154,7 @@ Examples (full table in [docs/CONTENT.md](docs/CONTENT.md)):
 | *Pyromaniac* | granted_ability + drawback | Gain the *Immolate* bonus action; you have −2 saves vs. fire and ignite adjacent allies on a natural 1. |
 | *Doomed* | drawback | Cannot be the last survivor — dies automatically if reduced to 1 ally. (Pairs with huge stat rolls.) |
 | *Lucky* | quirk | Once per floor, reroll any one die (yours or an enemy's roll against you). |
-| *Debt-Bonded* | quirk | Free to draft; 20% of any gold this delver personally loots is skimmed by the Guild… which you keep even if the run wipes. |
+| *Debt-Bonded* | quirk | Free to draft; 20% of any gold this chaindiver personally loots is skimmed by the Guild… which you keep even if the run wipes. |
 | *Heirloom Bearer* | quirk | Starts with a random uncommon weapon; if they die, that weapon auto-salvages (can't be lost on the floor). |
 
 ### 4.4 Reading synergy (player-facing helper)
@@ -190,15 +190,16 @@ Per turn, each character gets: **1 Move**, **1 Action**, **1 Bonus Action**, plu
 ### 5.3 Classes, multiclass, subclass
 
 - Ship classes: **Fighter, Rogue, Wizard, Cleric, Ranger, Barbarian** (v1). Design for ~12 (add Paladin, Monk, Sorcerer, Warlock, Bard, Druid).
-- **Every level-up, the player picks which class to take a level in** (Pathfinder: Kingmaker style). No stat/level prerequisites to *enter* a class in v1 — the cost of multiclassing is opportunity cost (delayed class features, split proficiency). Optional hardcore rule re-adds stat gates.
-- **Subclass** chosen at that class's **level 3** (some at 1 or 2), gated by feat/stat/skill/background prerequisites where flavorful. Subclass is where a build gets its verb.
+- **Every level-up, the player picks which class to take a level in** (Pathfinder: Kingmaker style). Advancing a class you're *already* in is always free. Taking your **first** level in a *new* class requires meeting that class's **Admission Requirement** — a short any-of/all-of list mixing **a stat threshold, a skill proficiency, and a trait/background/race qualifier** ("stats, skills, and otherwise"). The lists are loose: a typical chaindiver qualifies for 2–3 classes at draft, rarely all six. Full lists in [docs/PROGRESSION.md](docs/PROGRESSION.md §3.2). The opportunity cost (delayed features, split proficiency) still applies on top.
+- **Subclass** chosen at that class's **level 3** (some at 1 or 2), gated the same way — a mix of stat / skill / trait / background prerequisites. Every class keeps `≥2` ungated subclasses so a build is never bricked. Subclass is where a build gets its verb.
 - Multiclass spellcasting uses a simplified combined-slots rule (see PROGRESSION.md) to avoid 5e's headache.
 
 ### 5.4 Level cap `W` and XP
 
-- **`W` is the Guild-wide hard ceiling** on delver level, upgradable `3 → 5 → 8 → 11 → 14 → 17 → 20`. A run cannot level a delver past the current `W` even with surplus XP (it banks a little as Renown instead).
-- XP is awarded per encounter (objective + kills + optional bonus objectives). Party shares a pool; each delver spends from it. Early `W` tiers make the draft and floor 1–3 tactics matter more; deep `W` tiers turn late runs into a power fantasy that the enemy scaling (§11) chases.
-- **Milestone option** (difficulty setting): instead of XP numbers, delvers level on a fixed floor cadence (e.g. +1 level every 2 floors, capped at `W`). Cleaner, less bookkeeping, recommended default.
+- **`W` is the Guild-wide hard ceiling** on chaindiver level, upgradable `3 → 5 → 8 → 11 → 14 → 17 → 20`. A run cannot level a chaindiver past the current `W` even with surplus XP (it banks a little as Renown instead).
+- **XP leveling is the default** (locked). XP is awarded per encounter — objective clear + per-kill value + optional bonus-objective bonuses, all scaled by floor depth. Each chaindiver has their **own** XP bar (kills credit the killer; the objective/assist share is split across participants), so a chaindiver who sits out a floor or joins late falls behind — and a fed carry pulls ahead. This makes *who does the work* a real decision and makes a veteran's death cost more.
+- Early `W` tiers keep the draft and floor 1–3 tactics dominant; deep `W` tiers turn late runs into a power fantasy that enemy depth-scaling (§11) chases but never quite catches.
+- **Milestone option** (Covenant setting): swap XP bars for a fixed floor cadence (+1 level per ~2 floors, capped at `W`). Less bookkeeping for players who want it; not the default.
 
 ### 5.5 Injuries (between the binary of "fine" and "dead")
 
@@ -271,9 +272,9 @@ After clearing a floor, reveal **2–3 candidate next floors** (Scrying Pool upg
 Extraction floors (and post-Boss guaranteed extractions) present a menu. This is where runs are won or thrown away.
 
 1. **Bank loot & gold (SEND IT).** Ship any subset of your in-run gold + salvage + gear to the surface. Banked = permanently yours for the Guild. There's a **capacity** (Vault upgrade) and often a **tithe** (a % cut, reducible by Charter/upgrades). The party continues, now lighter — and often you've just sent up the gear that was keeping someone alive.
-2. **Retire the party (CASH OUT / USE IT — the run ends well).** Every surviving delver "retires" to the surface alive. You get: all carried loot banked automatically (no tithe), a **retirement bonus** (gold + Renown scaling with depth reached and survivors), and each retiree becomes a **Legend** in the Barracks — permanently recorded, and re-hireable later (Champion's Rest upgrade). The run is over. This is the "good ending" and the correct call more often than players want to admit.
-3. **Press on (LOSE IT… maybe).** Take nothing, keep everything on your bodies, go deeper. If you wipe before the next extraction, all of it — gold, gear, delvers — is gone. The deeper you are when you finally extract, the fatter the bonus.
-4. **Partial extraction (advanced).** Send *one delver* home with the loot (they retire as a Legend, carrying a bounded number of gear slots — guaranteed safe) while the rest press on short-handed. Great for saving a beloved veteran or a stuffed pack mule; brutal on the tactical layer.
+2. **Retire the party (CASH OUT / USE IT — the run ends well).** Every surviving chaindiver "retires" to the surface alive. You get: all carried loot banked automatically (no tithe), a **retirement bonus** (gold + Renown scaling with depth reached and survivors), and each retiree becomes a **Legend** in the Barracks — permanently recorded, and re-hireable later (Champion's Rest upgrade). The run is over. This is the "good ending" and the correct call more often than players want to admit.
+3. **Press on (LOSE IT… maybe).** Take nothing, keep everything on your bodies, go deeper. If you wipe before the next extraction, all of it — gold, gear, chaindivers — is gone. The deeper you are when you finally extract, the fatter the bonus.
+4. **Partial extraction (advanced).** Send *one chaindiver* home with the loot (they retire as a Legend, carrying a bounded number of gear slots — guaranteed safe) while the rest press on short-handed. Great for saving a beloved veteran or a stuffed pack mule; brutal on the tactical layer.
 
 Design intent: the *math* should usually say "extract", and the *player* should usually want to push. That gap is the game.
 
@@ -290,26 +291,26 @@ Design intent: the *math* should usually say "extract", and the *player* should 
 
 ### 9.2 Salvage (the corpse economy)
 
-- When a delver dies, their body drops **all** carried gear as a lootable cache on that hex.
-- Any surviving delver can spend **Move + Action** adjacent to the cache to strip it, up to their carry capacity (§5.1). Ungrabbed gear is **lost** when the floor ends.
+- When a chaindiver dies, their body drops **all** carried gear as a lootable cache on that hex.
+- Any surviving chaindiver can spend **Move + Action** adjacent to the cache to strip it, up to their carry capacity (§5.1). Ungrabbed gear is **lost** when the floor ends.
 - Salvaged gear can be: re-equipped immediately, carried to sell/bank at the next Market/Extraction, or fed to the Guild as Materials.
 - **Field salvage** of enemies: certain enemies (constructs, armored humanoids) leave salvage too. Beasts leave *crafting materials* / trophies.
 - Emotional beat: stripping your own dead teammate mid-fight while their killer is still on the board. The UI should not shy away from it.
 
 ### 9.3 Heirlooms & legacy
 
-- An heirloom weapon that survives 10+ floors, or is carried by 3+ different delvers across runs, can be **enshrined** at the Guild (Memorial upgrade) — it gains a name, a small stat, and a line of history. Enshrined heirlooms can be issued to a future recruit at run start.
-- A delver who dies *holding* an heirloom binds a wisp of themselves to it: the next wielder inherits one of the dead delver's traits or trained abilities. Builds a literal family tree of gear across a campaign.
+- An heirloom weapon that survives 10+ floors, or is carried by 3+ different chaindivers across runs, can be **enshrined** at the Guild (Memorial upgrade) — it gains a name, a small stat, and a line of history. Enshrined heirlooms can be issued to a future recruit at run start.
+- A chaindiver who dies *holding* an heirloom binds a wisp of themselves to it: the next wielder inherits one of the dead chaindiver's traits or trained abilities. Builds a literal family tree of gear across a campaign.
 
 ---
 
 ## 10. The Barracks (legacy layer)
 
-- **Hall of the Dead** — every fallen delver: name, portrait, race/class(es), level, floors survived, kill count, cause of death (specific: "Torn apart by a Rime Hound on Floor 12, holding the Ashglass Dagger"), and their traits. Searchable, sortable, filterable.
+- **Hall of the Dead** — every fallen chaindiver: name, portrait, race/class(es), level, floors survived, kill count, cause of death (specific: "Torn apart by a Rime Hound on Floor 12, holding the Ashglass Dagger"), and their traits. Searchable, sortable, filterable.
 - **Legends** — retired survivors. Same card, gold border, plus their retirement stats and current re-hire cost.
-- **Records** — deepest floor, richest single extraction, longest-lived delver, biggest single hit, most kills in one encounter, fastest Boss kill, "no-death" run streak, per-Charter bests.
+- **Records** — deepest floor, richest single extraction, longest-lived chaindiver, biggest single hit, most kills in one encounter, fastest Boss kill, "no-death" run streak, per-Charter bests.
 - **Run History** — a compact log of past runs: party, route taken through the descent, how it ended, what was banked. Replayable from seed (dev/verification feature, exposed as "Ghost Replay" for players later).
-- **Cause-of-death analytics** (fun + useful): "34% of your delvers die to hazards they walked into." "You extract on average at floor 7.2." Nudges self-awareness without nagging.
+- **Cause-of-death analytics** (fun + useful): "34% of your chaindivers die to hazards they walked into." "You extract on average at floor 7.2." Nudges self-awareness without nagging.
 - **Legacy Boons** feed from here into §3.4 Memorial.
 
 ---
@@ -317,19 +318,20 @@ Design intent: the *math* should usually say "extract", and the *player* should 
 ## 11. Difficulty, scaling & fairness
 
 - **Depth-based budget** is the primary knob (§7.2). Enemy tier tracks `party average level + f(depth)`; the `+f(depth)` term is what punishes over-greed.
-- **Covenant** (chosen at Guild creation, adjustable): enemy HP/damage multipliers, salvage %, tithe %, number of draft mulligans, whether Injuries are permanent, whether death saves exist at all (Abyssal: 0 HP = dead, no downed state).
+- **Covenant** (chosen at Guild creation, adjustable): enemy HP/damage multipliers, salvage %, tithe %, number of draft mulligans, XP vs. milestone leveling, whether Injuries are permanent, whether death saves exist at all (*Abyssal*: 0 HP = dead, no downed state). Preset tiers: *Chained* (default) / *Warden* / *Abyssal*.
 - **Rubber-banding, downward only:** after a wipe, the next run gets a tiny, decaying "grief" bonus (a free Rite, +1 mulligan) — never enough to trivialize, enough to reduce tilt. Off on Abyssal.
 - **Anti-snowball:** party size `X` and level cap `W` are gated behind *records*, not just gold, so the player can't buy their way past the tactical learning curve.
-- **Telegraphing is sacred.** Any time the game kills a delver, the player must have been able to see it coming: hit chances, damage ranges, enemy intent, hazard tick timing, save DCs — all visible pre-commit. Post-mortem screen highlights the fatal decision point.
+- **Telegraphing is sacred.** Any time the game kills a chaindiver, the player must have been able to see it coming: hit chances, damage ranges, enemy intent, hazard tick timing, save DCs — all visible pre-commit. Post-mortem screen highlights the fatal decision point.
 - **Seeded & deterministic** core so balance can be tested by simulation (run 10k headless drafts+descents, look at extraction depth / wipe-floor distributions).
 
 ---
 
-## 12. Naming & tone
+## 12. Naming & tone (locked)
 
-- **Delvers** vs. slaves/adventurers/helldivers/depthdivers: recommend **"Delvers"** as the neutral term, with Charter-flavored synonyms in UI text (*the Condemned*, *the Contracted*, *the Faithful*, *volunteers*). "Depthdiver" as the working project title / the deepest-diver record holder's honorific.
-- **The Pit** (settlement) candidates: *Gallowsreach*, *the Maw*, *the Sinkhole Concession*, *Ninefold Deep*, *the Throat*, *Coinhole*, *Last Market*.
-- **The Descent / the Abyss / the Deep** for the dungeon. Floors are "Deeps" (Deep 1, Deep 2…) or just numbered.
+- **Chaindivers** — the units. Locked. They go down *on the chain*: roped together, sent into the knot that can't be untied. Charter-flavored synonyms appear in UI/flavor text (*the Condemned*, *the Contracted*, *the Faithful*, *volunteers*, *stock*) but "Chaindivers" is the term the game and this doc use.
+- **The Gordion Pit** — the settlement. Locked as the canonical/default name; the player renames it at Guild creation (§3.1). The Gordian-knot reference is load-bearing flavor: you don't solve the Pit, you cut down through it. The deepest-ever chaindiver on a Guild's records earns the honorific **"Depthdiver."**
+- **The Descent / the Abyss / the Deep** — the dungeon. Individual floors are **Deeps** (Deep 1, Deep 2, …) or just numbered.
+- **DEPTHDIVER** stays the working *project* title; the store title decision (Dungeon Delver / Depthdiver / The Gordion Pit) is the one remaining name call — see §14.
 - Tone: grimy, mercenary, darkly funny. *Battle Brothers* register — matter-of-fact about death, not edgelord about it. Event text has a dry narrator (the Overseer).
 
 ---
@@ -357,7 +359,7 @@ Grouped by how strongly they're recommended.
 - **Faction reputation in the Deep** — some floors have a neutral third party (a lost expedition, a merchant, cultists). Help / rob / ignore. Reputation unlocks Market stock or turns them hostile.
 - **Environmental "verbs" for the player** — shove enemies into hazards/chasms, collapse a ceiling on a choke, ignite an oil slick, bait a trap. Reward tactical creativity over stat-checks.
 - **Formation / stance meta-actions** — a party-wide toggle each turn (Aggressive/Defensive/Skirmish) that trades a small bonus for a small penalty, giving the player one decision even on quiet turns.
-- **Camp events at Rest Sites** — short branching dialogue with a mechanical choice; a place for delver personality to surface (their traits/background gate options).
+- **Camp events at Rest Sites** — short branching dialogue with a mechanical choice; a place for chaindiver personality to surface (their traits/background gate options).
 - **The retirement cutscene** — a one-screen "where are they now" for each Legend. *Battle Brothers* / *Wildermyth* pathos on the cheap.
 - **New Charters as the main long-tail content** — each is a full re-flavor + rules twist. Cheaper than new classes, high replay value.
 
@@ -373,8 +375,8 @@ Grouped by how strongly they're recommended.
 
 ### 13.4 Small polish ideas (cheap wins)
 
-- Every delver auto-generates a **one-line epitaph** on death from their traits + cause ("Feared nothing but fire. Died to fire.").
-- A **"last stand" slow-mo** beat when your final delver drops.
+- Every chaindiver auto-generates a **one-line epitaph** on death from their traits + cause ("Feared nothing but fire. Died to fire.").
+- A **"last stand" slow-mo** beat when your final chaindiver drops.
 - **Threat range overlay** — hover any enemy, see every hex it could reach + attack this turn, unioned across enemies with a heat tint.
 - **Undo movement** before committing an Action (not after) — respects the puzzle without punishing misclicks.
 - **Loadout presets** the player names, applied at draft/gear time.
@@ -387,15 +389,23 @@ Grouped by how strongly they're recommended.
 
 ## 14. Open questions / decisions to lock
 
-1. **XP numbers vs. milestone leveling** — lean milestone for default, XP as a Covenant option. Confirm.
-2. **How punishing is gear loss?** Current stance: modest (§9.1). If playtests show it's run-ending, soften salvage rules, not gear power.
-3. **Downed/death-save state on by default?** Yes for Delver/Warden, off for Abyssal. Confirm the save math (3/3, hit-while-down auto-fails).
-4. **Party size `X` starting value** — 3 or 4? 3 makes early runs tense and the draft heavier; 4 is more forgiving and more "party-like". Leaning 3.
-5. **Draft: full re-roll on every pick** (current, max tension) vs. re-roll only the drafted slot (lets you plan around visible recruits). Leaning full re-roll, with Bench upgrade as the pressure valve.
-6. **Multiclass prerequisites** — none in v1 (opportunity cost only) vs. 5e-style stat gates. Leaning none + optional hardcore rule.
-7. **How much authored content per Boss** vs. procedural assembly (§13.3). Probably hand-author Deeps 5/10/15, proc-assemble beyond.
-8. **Real-money / meta-progression ethics** — this is a premium game, no MTX. State it plainly.
-9. **Name.** Lock the game title and the settlement name before store-page work.
+### Locked
+
+- ✅ **Leveling** — **XP**, per-chaindiver bars (§5.4). Milestone is a Covenant option, not the default.
+- ✅ **Party size `X` start** — **3**. Tense early runs, heavier draft. `X` grows to 6 via record-gated Barracks upgrades.
+- ✅ **Draft re-roll** — **full re-roll of the whole pool on every pick** (§4.2). You've already locked in a pick by the time the pool changes, so nothing you were "owed" is taken away — but you can't sandbag waiting for a specific card. Bench (upgrade) is the pressure valve.
+- ✅ **Multiclass / subclass gates** — **mixed Admission Requirements**: a stat threshold *or* a skill proficiency *or* a trait/background/race qualifier (§5.3, PROGRESSION §3.2). Not "no gates", not "pure stat gates".
+- ✅ **Settlement name** — **The Gordion Pit** (player-renameable at Guild creation).
+- ✅ **Unit term** — **Chaindivers**.
+- ✅ **Monetization** — premium, no MTX, no ads. Stated on the store page.
+
+### Still open
+
+1. **How punishing is gear loss?** Current stance: modest (§9.1). If playtests show it's run-ending, soften salvage rules, not gear power.
+2. **Downed/death-save math** — 3 successes / 3 failures, hit-while-down auto-fails (crit = 2 fails). On for *Chained*/*Warden*, off for *Abyssal*. Confirm numbers in playtest.
+3. **Authored vs. procedural Bosses** — hand-author Deeps 5/10/15/20, procedurally assemble beyond (§13.3). Confirm the cutover.
+4. **Store title** — *Dungeon Delver* / *Depthdiver* / *The Gordion Pit*. "DEPTHDIVER" is the working project title; pick the shipping one before store-page work.
+5. **Blind Draft** (§4.2) — ship as a Charter-gated variant in v1, or hold for later?
 
 ---
 
@@ -403,10 +413,11 @@ Grouped by how strongly they're recommended.
 
 | Term | Meaning |
 |---|---|
-| **Guild / the Pit** | Persistent meta-account: settlement, upgrades, Barracks, Vault. |
+| **Guild / The Gordion Pit** | Persistent meta-account: settlement (player-renamed), upgrades, Barracks, Vault. |
 | **Charter** | The campaign-level "class" chosen at Guild creation. |
-| **Delver** | A drafted character. Expendable by design. |
-| **Draft** | Pre-run: roll `N`, pick `X` one at a time with full re-roll between picks. |
+| **Chaindiver** | A drafted character. Expendable by design. Deepest-ever on a Guild's records = "Depthdiver". |
+| **Draft** | Pre-run: roll `N`, pick `X` one at a time; the whole pool full-re-rolls after each pick. |
+| **Admission Requirement** | The stat / skill / trait gate to take a first level in a new class or a gated subclass. |
 | **`N` / `X` / `W`** | Draft pool size / party size / level cap. All Guild-upgradable. |
 | **Descent / Deep** | The dungeon / an individual floor. |
 | **Objective** | The win condition for a floor (Slay/Survive/Extract/Escort/Hold). |

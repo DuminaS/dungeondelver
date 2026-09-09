@@ -35,13 +35,13 @@ Goal: one hand-made encounter, fully playable, no meta.
 Goal: data-driven content, procedural floors, a multi-floor run (no meta yet).
 
 - [ ] Data tables (TS modules, typed): races, classes (L1–5), traits, backgrounds, monsters (tier 1–2), weapons/armor/trinkets/consumables, floor types.
-- [ ] Character generator: roll race/stats/class/background/traits → full level-1 delver with kit.
+- [ ] Character generator: roll race/stats/class/background/traits → full level-1 chaindiver with kit.
 - [ ] Draft screen: roll `N`, pick loop with full re-roll, mulligan, synergy panel.
 - [ ] Arena generator: biome templates, elevation, choke carving, objective placement, enemy budgeting, hazard scatter, validation pass (COMBAT.md §7).
 - [ ] Objectives: Slay, Survive, Extract, Hold, Escort.
 - [ ] Deployment phase.
 - [ ] Descent map: reveal 2–3 tagged candidates, threat rating, modifiers; pick → next floor.
-- [ ] Aftermath: loot, level-up (milestone), downed/death-saves/permadeath, Injuries.
+- [ ] Aftermath: loot, per-chaindiver XP + level-up (choose-your-class prompt), downed/death-saves/permadeath, Injuries.
 - [ ] Salvage: corpse caches, carry capacity, strip action.
 - [ ] Run-end (wipe) screen.
 - [ ] **Playtest gate:** is a 6–10 floor run tense and readable?
@@ -51,12 +51,12 @@ Goal: data-driven content, procedural floors, a multi-floor run (no meta yet).
 Goal: the full run→spend→run cycle.
 
 - [ ] `meta.ts` — persistent save (versioned JSON in localStorage), migration hook.
-- [ ] Guild creation: Charters (3), sigil/name, Overseer, Covenant sliders.
+- [ ] Guild creation: Charters (3), name-the-Pit + sigil (default "The Gordion Pit"), Overseer, Covenant sliders (Chained/Warden/Abyssal + custom).
 - [ ] Resources: Gold, Renown, Materials, Relics.
 - [ ] Upgrade tracks: Recruitment Hall (`N`), Barracks (`X`, record-gated), Training Yard (`W`), Recruit Pedigree, Vault, + 2–3 more.
 - [ ] Extraction floors: bank / retire / press on / partial extraction.
 - [ ] Barracks: Hall of the Dead (obituaries + cause of death), Legends, Records, Run History.
-- [ ] Multiclass + subclass UI (gated by `W` tier), feats.
+- [ ] Multiclass + subclass UI (Admission Requirements: stat/skill/trait gates), feats, per-class ASI cadence.
 - [ ] Rest Site / Market / Shrine floors.
 - [ ] **Playtest gate:** do you want to start another run the moment one ends?
 
@@ -69,7 +69,7 @@ Goal: the full run→spend→run cycle.
 - [ ] Floor modifiers (Darkness, Ambush, Elite pack, …).
 - [ ] Heirlooms & Legacy Boons; Memorial upgrade.
 - [ ] Audio, juice, screen-shake budget, colorblind-safe hazard patterns, full roll log.
-- [ ] Balance sim: 10k headless runs per patch; dashboards for wipe-floor, extraction-depth, delver-death-cause.
+- [ ] Balance sim: 10k headless runs per patch; dashboards for wipe-floor, extraction-depth, chaindiver-death-cause.
 
 ## Phase 5 — Meta-content & longevity
 
