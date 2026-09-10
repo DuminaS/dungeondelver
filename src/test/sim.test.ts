@@ -71,10 +71,12 @@ function autoPlayEncounter(enc: Encounter): void {
             ? enc.allies(u)[0]?.id
             : undefined;
       if (f.needsTarget === "hex") {
-        // misty step to any adjacent open tile
         for (const n of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
           if (enc.teleport({ q: u.pos.q + n[0], r: u.pos.r + n[1] })) break;
         }
+      } else if (f.needsTarget === "area") {
+        const center = f.selfCentered ? u.pos : (enc.enemiesOf(u)[0]?.pos ?? u.pos);
+        enc.areaFeature(f.id, center);
       } else if (f.needsTarget === "none" || tgt) {
         enc.useFeature(f.id, tgt);
       }

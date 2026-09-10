@@ -60,8 +60,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     id: "fighter", name: "Fighter", hitDie: 10, primary: "STR", baseArmor: 5, dexCap: 2,
     weapon: W("Longsword", "1d8", "STR"),
     skills: ["Athletics", "Intimidation"],
-    blurb: "Front line. Second Wind heal, Power Attack for big swings, Action Surge, Extra Attack at 5.",
-    features: { 1: ["second_wind", "power_attack"], 2: ["action_surge"], 3: ["fighter_grit"], 5: ["extra_attack"] },
+    blurb: "Front line. Second Wind heal, Power Attack, Cleave into a second foe, Action Surge, Extra Attack at 5.",
+    features: { 1: ["second_wind", "power_attack"], 2: ["action_surge"], 3: ["fighter_grit", "cleave"], 5: ["extra_attack"] },
   },
   rogue: {
     id: "rogue", name: "Rogue", hitDie: 8, primary: "DEX", baseArmor: 2, dexCap: 6,
@@ -74,22 +74,22 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     id: "ranger", name: "Ranger", hitDie: 10, primary: "DEX", baseArmor: 3, dexCap: 4,
     weapon: W("Longbow", "1d8", "DEX", 9, true),
     skills: ["Survival", "Perception"],
-    blurb: "Ranged control. Hunter's Mark stacks damage; Colossus Slayer; Extra Attack at 5.",
-    features: { 1: ["hunters_mark"], 3: ["colossus_slayer"], 5: ["extra_attack"] },
+    blurb: "Ranged control. Hunter's Mark stacks damage; Colossus Slayer; Volley a whole cluster; Extra Attack at 5.",
+    features: { 1: ["hunters_mark"], 3: ["colossus_slayer"], 5: ["extra_attack", "volley"] },
   },
   cleric: {
     id: "cleric", name: "Cleric", hitDie: 8, primary: "WIS", baseArmor: 5, dexCap: 2,
     weapon: W("Sacred Flame", "1d8", "WIS", 6),
     skills: ["Religion", "Medicine"],
-    blurb: "Armoured support. Cure Wounds, Bless the line, radiant bolts at range.",
-    features: { 1: ["cure_wounds", "sacred_flame"], 2: ["bless"], 3: ["radiant_scaling"] },
+    blurb: "Armoured support. Cure Wounds, Bless the line, radiant bolts, a searing aura around you.",
+    features: { 1: ["cure_wounds", "sacred_flame"], 2: ["bless"], 3: ["radiant_scaling", "spirit_guardians"] },
   },
   barbarian: {
     id: "barbarian", name: "Barbarian", hitDie: 12, primary: "STR", baseArmor: 0, dexCap: 6,
     weapon: W("Greataxe", "1d12", "STR", 1, true),
     skills: ["Athletics", "Survival"],
-    blurb: "Rage to halve incoming blows and hit harder. Reckless Attack. Unarmored (CON). Extra Attack at 5.",
-    features: { 1: ["rage"], 2: ["reckless"], 3: ["barb_toughness"], 5: ["extra_attack"] },
+    blurb: "Rage to halve blows and hit harder. Reckless Attack, Sweep everyone adjacent. Unarmored (CON). Extra Attack at 5.",
+    features: { 1: ["rage"], 2: ["reckless"], 3: ["barb_toughness", "sweep"], 5: ["extra_attack"] },
   },
   paladin: {
     id: "paladin", name: "Paladin", hitDie: 10, primary: "STR", baseArmor: 7, dexCap: 0,
@@ -109,8 +109,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     id: "bard", name: "Bard", hitDie: 8, primary: "CHA", baseArmor: 3, dexCap: 3,
     weapon: W("Vicious Mockery", "1d6", "CHA", 6),
     skills: ["Persuasion", "Deception"],
-    blurb: "Ranged jeers that leave a target off-balance. Inspire an ally, Healing Word from range.",
-    features: { 1: ["inspire"], 3: ["healing_word"], 5: ["cutting_words"] },
+    blurb: "Ranged jeers that leave a target off-balance. Inspire an ally, Healing Word, a Thunderwave when swarmed.",
+    features: { 1: ["inspire"], 3: ["healing_word"], 5: ["cutting_words", "thunderwave"] },
   },
   druid: {
     id: "druid", name: "Druid", hitDie: 8, primary: "WIS", baseArmor: 3, dexCap: 3,
@@ -123,8 +123,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     id: "sorcerer", name: "Sorcerer", hitDie: 6, primary: "CHA", baseArmor: 0, dexCap: 6,
     weapon: W("Chaos Bolt", "1d10", "CHA", 8),
     skills: ["Arcana", "Deception"],
-    blurb: "Raw blasting. Font of Magic (+1 ranged), Quickened Spell for a bonus-action bolt, bigger dice at 5.",
-    features: { 1: ["font_of_magic"], 2: ["quickened"], 5: ["sorc_scaling"] },
+    blurb: "Raw blasting. Font of Magic (+1 ranged), Burning Hands burst, Quickened bonus-action bolt, bigger dice at 5.",
+    features: { 1: ["font_of_magic"], 2: ["quickened", "burning_hands"], 5: ["sorc_scaling"] },
   },
   warlock: {
     id: "warlock", name: "Warlock", hitDie: 8, primary: "CHA", baseArmor: 2, dexCap: 4,
@@ -137,8 +137,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     id: "wizard", name: "Wizard", hitDie: 6, primary: "INT", baseArmor: 0, dexCap: 6,
     weapon: W("Firebolt", "1d10", "INT", 10),
     skills: ["Arcana", "Investigation"],
-    blurb: "Fragile artillery. Magic Missile that never misses, Misty Step to blink away, Shield, 2d10 bolt at 5.",
-    features: { 1: ["magic_missile"], 2: ["misty_step"], 3: ["arcane_shield"], 5: ["fire_scaling"] },
+    blurb: "Fragile artillery. Magic Missile never misses, Burning Hands burst, Misty Step, Shield, 2d10 bolt at 5.",
+    features: { 1: ["magic_missile"], 2: ["misty_step"], 3: ["arcane_shield", "burning_hands"], 5: ["fire_scaling"] },
   },
   artificer: {
     id: "artificer", name: "Artificer", hitDie: 8, primary: "INT", baseArmor: 3, dexCap: 3,
@@ -198,6 +198,12 @@ export const FEATURES: Record<string, { name: string; text: string }> = {
   infused_armor: { name: "Infused Armour", text: "Passive: +1 AC." },
   flash_repair: { name: "Flash Repair", text: "Bonus: heal an ally within 6 for 1d8 + INT. 2/enc." },
   cutting_words: { name: "Cutting Words", text: "Passive: Vicious Mockery also leaves the target off-balance." },
+  cleave: { name: "Cleave", text: "Action: attack your target; a hit carries into another enemy beside you." },
+  sweep: { name: "Sweep", text: "Action: one attack roll against every enemy next to you." },
+  volley: { name: "Volley", text: "Action: mark a spot in range — attack every enemy within a hex of it." },
+  spirit_guardians: { name: "Spirit Guardians", text: "Aura: enemies that start their turn next to you take 1d8 radiant." },
+  burning_hands: { name: "Burning Hands", text: "Action: a fiery burst within 3 hexes — 2d6 to everything caught, allies too." },
+  thunderwave: { name: "Thunderwave", text: "Action: 2d8 thunder to every enemy next to you, and shove them back." },
   // racial
   stoneblood: { name: "Stoneblood", text: "Advantage vs. poison; -1 from hazards." },
   keen_eyed: { name: "Keen-Eyed", text: "+1 ranged to hit at 3+ hexes." },
@@ -308,6 +314,34 @@ export const TRAITS: Record<string, TraitDef> = {
     name: "Relentless",
     kind: "boon",
     text: "Once per floor, a killing blow leaves you at 1 HP instead.",
+  },
+  guild_arms: {
+    id: "guild_arms",
+    name: "Guild Arms",
+    kind: "boon",
+    text: "Smithy issue: +1 AC.",
+    apply: (c) => {
+      c.ac += 1;
+    },
+  },
+  guild_edge: {
+    id: "guild_edge",
+    name: "Guild Edge",
+    kind: "boon",
+    text: "Smithy issue: a keen weapon (+1 hit, crits on 19-20).",
+    apply: (c) => {
+      if (!c.weapon.name.startsWith("Keen ")) c.weapon = { ...c.weapon, name: `Keen ${c.weapon.name}` };
+    },
+  },
+  guild_rations: {
+    id: "guild_rations",
+    name: "Guild Rations",
+    kind: "boon",
+    text: "Smithy issue: +2 max HP per level, +1 Speed.",
+    apply: (c) => {
+      c.maxHp += 2 * c.level;
+      c.speed += 1;
+    },
   },
 };
 

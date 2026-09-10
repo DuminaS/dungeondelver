@@ -5,9 +5,11 @@ import { generateArena } from "./arena";
 import { Encounter } from "./encounter";
 import { unitFromCharacter } from "./units";
 import { MONSTERS } from "./data";
+import { RUN_CONFIG } from "./config";
 
-export const DRAFT_POOL_SIZE = 3; // N
-export const PARTY_SIZE = 3; // X
+// legacy defaults (used only as fallbacks in UI text before a run exists)
+export const DRAFT_POOL_SIZE = 3;
+export const PARTY_SIZE = 3;
 
 export class Run {
   state: RunState;
@@ -17,6 +19,9 @@ export class Run {
   pool: Character[] = [];
   lastEncounter: Encounter | null = null;
   currentFloor: FloorCandidate | null = null;
+  readonly draftPool = RUN_CONFIG.draftPool;
+  readonly partySize = RUN_CONFIG.partySize;
+  mulligansLeft = RUN_CONFIG.mulligans;
 
   constructor(seed?: string, guildName = "The Gordion Pit") {
     const s = seed ?? randomSeed();
@@ -41,20 +46,33 @@ export class Run {
   // ---------------------------------------------------------------- draft
 
   get draftComplete(): boolean {
-    return this.state.party.length >= PARTY_SIZE;
+    return this.state.party.length >= this.partySize;
   }
 
   rollPool(): void {
     this.pool = [];
     const seen = new Set<string>();
     let guard = 0;
-    while (this.pool.length < DRAFT_POOL_SIZE && guard++ < 50) {
+    while (this.pool.length < this.draftPool && guard++ < 80) {
       const c = makeCharacter(this.draftRng);
       const sig = `${c.raceId}:${c.classId}`;
-      if (seen.has(sig) && this.pool.length < DRAFT_POOL_SIZE - 1) continue;
+      if (seen.has(sig) && this.pool.length < this.draftPool - 1) continue;
       seen.add(sig);
       this.pool.push(c);
     }
+  }
+
+  /** free mulligan — re-roll the whole current pool */
+  mulligan(): boolean {
+    if (this.mulligansLeft <= 0 || this.draftComplete) return false;
+    this.mulligansLeft--;
+    this.rollPool();
+    return true;
+  }
+
+  /** monetised re-roll (ad-gated in production; free in the playtest) */
+  adReroll(): void {
+    this.rollPool();
   }
 
   pickRecruit(id: string): boolean {
@@ -190,7 +208,7 @@ export class Run {
     // post-floor breather: everyone still alive recovers a quarter of max HP
     if (enc.phase === "won") {
       for (const c of this.state.party) {
-        c.hp = Math.min(c.maxHp, c.hp + Math.ceil(c.maxHp / 4));
+        c.hp = Math.min(c.maxHp, c.hp + Math.ceil(c.maxHp * RUN_CONFIG.postFloorHeal));
       }
     }
 
@@ -232,10 +250,14 @@ export class Run {
 
   // ---------------------------------------------------------------- extraction
 
+  get bankCap(): number {
+    return RUN_CONFIG.bankCap;
+  }
+
   bankGold(): number {
-    const moved = this.state.gold;
+    const moved = Math.min(this.state.gold, RUN_CONFIG.bankCap);
     this.state.bankedGold += moved;
-    this.state.gold = 0;
+    this.state.gold -= moved;
     this.revealNextFloors();
     return moved;
   }

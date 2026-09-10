@@ -17,9 +17,14 @@ import {
   ROLLABLE_TRAITS,
   TRAITS,
 } from "./data";
+import { RUN_CONFIG } from "./config";
 
-export const LEVEL_CAP = 6;
-const XP_THRESHOLDS = [0, 300, 900, 2700, 6500, 14000, 30000];
+/** absolute ceiling; the Guild's Training Yard sets the live cap in RUN_CONFIG */
+export const LEVEL_CAP = 20;
+const XP_THRESHOLDS = [
+  0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000,
+  100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000,
+];
 
 export function xpForLevel(level: number): number {
   return XP_THRESHOLDS[Math.min(level - 1, XP_THRESHOLDS.length - 1)];
@@ -59,8 +64,9 @@ function assignStats(rng: RNG, classId: ClassId): Abilities {
   const prio = STAT_PRIORITY[classId];
   const out = {} as Abilities;
   prio.forEach((k, i) => {
-    out[k] = arr[i];
+    out[k] = Math.max(RUN_CONFIG.statFloor, arr[i]);
   });
+  if (RUN_CONFIG.primaryBonus) out[prio[0]] += RUN_CONFIG.primaryBonus;
   return out;
 }
 
@@ -138,6 +144,9 @@ export function makeCharacter(rng: RNG, opts?: { classId?: ClassId; raceId?: Rac
     [2, 35],
   ]) + (raceId === "human" ? 1 : 0);
   const traitIds = rng.sample(ROLLABLE_TRAITS, traitCount);
+  // Smithy issue: Guild kit on every recruit
+  const gear = ["guild_arms", "guild_edge", "guild_rations"];
+  for (let i = 0; i < RUN_CONFIG.gearTier && i < gear.length; i++) traitIds.push(gear[i]);
 
   const c: Character = {
     id: `c${idCounter++}`,
@@ -168,7 +177,8 @@ export function makeCharacter(rng: RNG, opts?: { classId?: ClassId; raceId?: Rac
 export function grantXp(c: Character, amount: number): number {
   c.xp += amount;
   let gained = 0;
-  while (c.level < LEVEL_CAP && c.xp >= xpForLevel(c.level + 1)) {
+  const cap = Math.min(LEVEL_CAP, RUN_CONFIG.levelCap);
+  while (c.level < cap && c.xp >= xpForLevel(c.level + 1)) {
     c.level += 1;
     gained += 1;
   }

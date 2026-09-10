@@ -49,8 +49,12 @@ export class BoardView {
   reachable: Map<string, number> = new Map();
   attackable: Set<string> = new Set();
   threatened: Set<string> = new Set();
+  targetables: Set<string> = new Set();
   pathPreview: Hex[] = [];
   deploy: Hex[] = [];
+  armedMove: Hex | null = null;
+  armedTargetId: string | null = null;
+  armedArea: Hex[] = [];
 
   cb: BoardCallbacks = {};
 
@@ -280,6 +284,29 @@ export class BoardView {
       }
     }
 
+    // feature-targeting candidates: gold dashed rings
+    for (const k of this.targetables) {
+      const [q, r] = k.split(",").map(Number);
+      const { x, y } = hexToPixel({ q, r }, L);
+      this.hexPath(x, y, s * 0.9);
+      c.strokeStyle = "rgba(217,164,65,0.8)";
+      c.lineWidth = 1.5;
+      c.setLineDash([3, 3]);
+      c.stroke();
+      c.setLineDash([]);
+    }
+
+    // armed area (AOE / teleport preview)
+    for (const h of this.armedArea) {
+      const { x, y } = hexToPixel(h, L);
+      this.hexPath(x, y, s * 0.96);
+      c.fillStyle = "rgba(220,138,58,0.28)";
+      c.fill();
+      c.strokeStyle = "rgba(220,138,58,0.9)";
+      c.lineWidth = 1.5;
+      c.stroke();
+    }
+
     // hover
     if (this.hover) {
       const { x, y } = hexToPixel(this.hover, L);
@@ -287,6 +314,29 @@ export class BoardView {
       c.strokeStyle = "rgba(236,224,205,0.85)";
       c.lineWidth = 1.75;
       c.stroke();
+    }
+
+    // armed move destination
+    if (this.armedMove) {
+      const { x, y } = hexToPixel(this.armedMove, L);
+      this.hexPath(x, y, s * 0.9);
+      c.fillStyle = "rgba(217,164,65,0.3)";
+      c.fill();
+      c.strokeStyle = C.gold;
+      c.lineWidth = 3;
+      c.stroke();
+    }
+    // armed attack/feature target
+    if (this.armedTargetId) {
+      const tu = enc.units.find((z) => z.id === this.armedTargetId && (z.alive || z.downed));
+      if (tu) {
+        const { x, y } = hexToPixel(tu.pos, L);
+        c.strokeStyle = C.gold;
+        c.lineWidth = 3.5;
+        c.beginPath();
+        c.arc(x, y, s * 0.78, 0, Math.PI * 2);
+        c.stroke();
+      }
     }
 
     for (const u of enc.units) {

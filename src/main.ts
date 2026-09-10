@@ -1,31 +1,50 @@
 import "./style.css";
-import { Hex, key } from "./core/hex";
-import { AbilityKey, ABILITIES, Character, CLASS_IDS, Unit } from "./game/types";
-import { CLASSES, RACES, TRAITS } from "./game/data";
-import { Run, EncounterReport, PARTY_SIZE } from "./game/descent";
+import { Hex, eq, key } from "./core/hex";
+import { AbilityKey, ABILITIES, Character, Unit } from "./game/types";
+import { CLASSES, FEATURES, RACES, TRAITS } from "./game/data";
+import { RUN_CONFIG } from "./game/config";
+import {
+  BUILDINGS,
+  Guild,
+  applyGuildToConfig,
+  buildingLevel,
+  doUpgrade,
+  foundGuild,
+  loadGuild,
+  recordRun,
+  SIGILS,
+  upgradeBlocked,
+  upgradeCost,
+} from "./game/guild";
+import { Run, EncounterReport } from "./game/descent";
 import { Encounter } from "./game/encounter";
 import { BoardView } from "./ui/render";
-import { loadMeta, Meta, recordRun } from "./ui/meta";
 import { CONDITION_ICON, icon, logStyle, stat } from "./ui/icons";
 import { crest } from "./ui/crests";
 
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
 
-type Phase = "title" | "draft" | "descent" | "encounter" | "aftermath" | "gameover";
+type Phase = "found" | "settlement" | "draft" | "descent" | "encounter" | "aftermath" | "debrief";
 
 const app = document.getElementById("app")!;
-let phase: Phase = "title";
+let guild: Guild = loadGuild();
+applyGuildToConfig(guild);
+let phase: Phase = guild.name ? "settlement" : "found";
 let run: Run | null = null;
 let enc: Encounter | null = null;
 let board: BoardView | null = null;
 let report: EncounterReport | null = null;
-let meta: Meta = loadMeta();
 
-let pendingFeature: { id: string; needs: "ally" | "enemy" | "none" | "hex" } | null = null;
+// ---- encounter interaction ----
+type Armed =
+  | { t: "move"; hex: Hex }
+  | { t: "target"; id: string; unitId: string } // id: __attack | __shove | <feature>
+  | { t: "hex"; id: string; hex: Hex }; // id: __teleport | <area feature>
+let armed: Armed | null = null;
+let picking: { id: string; needs: "enemy" | "ally" | "hex" | "area" } | null = null;
 let enemyTimer: number | null = null;
 
-// crest art that 404s / fails to decode -> fall back to the SVG role glyph
 app.addEventListener(
   "error",
   (e) => {
@@ -70,95 +89,165 @@ function characterCard(c: Character, opts: { pick?: boolean } = {}): string {
       <span class="ucard__lvl">L${c.level}</span>
     </div>
     <div class="statrow">
-      ${stat("hp", c.maxHp)}
-      ${stat("def", c.ac)}
-      ${stat("move", c.speed)}
-      ${stat("atk", weaponLabel(c))}
+      ${stat("hp", c.maxHp)} ${stat("def", c.ac)} ${stat("move", c.speed)} ${stat("atk", weaponLabel(c))}
     </div>
-    <div class="attrs">
-      ${ABILITIES.map((k) => attrChip(k, c.abilities[k], k === cls.primary)).join("")}
-    </div>
+    <div class="attrs">${ABILITIES.map((k) => attrChip(k, c.abilities[k], k === cls.primary)).join("")}</div>
     ${traits ? `<div class="taglist">${traits}</div>` : `<div class="sub">— no traits —</div>`}
   </div>`;
 }
 
 function render(): void {
-  ({ title: renderTitle, draft: renderDraft, descent: renderDescent, encounter: renderEncounter, aftermath: renderAftermath, gameover: renderGameOver })[phase]();
+  const map: Record<Phase, () => void> = {
+    found: renderFound,
+    settlement: renderSettlement,
+    draft: renderDraft,
+    descent: renderDescent,
+    encounter: renderEncounter,
+    aftermath: renderAftermath,
+    debrief: renderDebrief,
+  };
+  map[phase]();
 }
 
-// ---------------------------------------------------------------- title
+// ---------------------------------------------------------------- found the Pit
 
-function renderTitle(): void {
-  const g = meta.graveyard.slice(0, 6);
+let foundSigil = SIGILS[0];
+function renderFound(): void {
   app.innerHTML = `
   <div class="wrap center col">
-    <div>
-      <div class="eyebrow">A roguelike descent</div>
-      <h1>Depthdiver</h1>
-    </div>
+    <div><div class="eyebrow">Found a concession</div><h1>Name the Pit</h1></div>
     <p class="muted">The Gordion Pit — the knot no one could untie, so they started cutting <i>down</i> through it.
-    Roll a warband of nobodies, draft ${PARTY_SIZE}, see how deep they get before the Deep keeps them.</p>
-    <div class="crestrow crestrow--wrap">${CLASS_IDS.map((c) => crest(c, "md")).join("")}</div>
-    <p class="eyebrow">13 classes · draft any of them</p>
-
+    This is your settlement at its mouth. It stays with you across every run; the dungeon is always new.</p>
     <div class="panel col">
-      <span class="eyebrow">Run seed — blank for random</span>
-      <div class="row">
-        <input type="text" id="seed" placeholder="ash-lantern-207" />
-        <button class="primary" id="start">${icon("extract")} Enter the Pit</button>
-      </div>
-      <p class="sub">Same seed + same picks = the same run.</p>
+      <span class="eyebrow">The name over the gate</span>
+      <input type="text" id="pit-name" maxlength="28" placeholder="The Gordion Pit" />
+      <span class="eyebrow">Sigil</span>
+      <div class="sigils" id="sigils">${SIGILS.map((s) => `<button class="sigil ${s === foundSigil ? "sigil--on" : ""}" data-s="${s}">${s}</button>`).join("")}</div>
+      <div class="row"><button class="primary" id="found">${icon("check")} Found the Pit</button></div>
     </div>
-
-    <div class="panel col">
-      <h2>Board key</h2>
-      <ul class="keyed">
-        <li>${icon("move")}<span><b>Move</b> — hover a blue tile, click to go. Leaving an enemy's reach draws a free hit unless you Disengage.</span></li>
-        <li>${icon("atk")}<span><b>Attack</b> — click an enemy inside the red brackets. High ground = better odds.</span></li>
-        <li>${icon("threat")}<span><b>Red wash</b> — tiles an enemy can hit next turn. <b>Dashed line + reticle</b> — that enemy's plan.</span></li>
-        <li>${icon("hazard")}<span><b>Hazards</b> — acid, spikes, fire, gas. <b>▲</b> marks high ground. <span style="color:var(--gold)">${icon("extract")}</span> is the way out.</span></li>
-        <li>${icon("skull")}<span><b>Permadeath.</b> Downed isn't dead if an ally reaches them. The run banks only what you carry to an Extraction Shaft.</span></li>
-      </ul>
-    </div>
-
-    ${meta.runs.length ? `
-    <div class="panel col">
-      <h2>The Gordion Pit — records</h2>
-      <div class="statrow">
-        ${stat("chevron", `Deep ${meta.bestDepth}`, "", "deepest")}
-        ${stat("loot", `${meta.bestBanked}g`, "gold", "richest bank")}
-        ${stat("loot", `${meta.totalBanked}g`, "", "total banked")}
-        ${stat("skull", meta.graveyard.length, "bad", "the dead")}
-      </div>
-      ${g.length ? `<h3>Hall of the Dead</h3>${g.map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}` : ""}
-    </div>` : ""}
   </div>`;
-
-  document.getElementById("start")!.addEventListener("click", () => {
-    const seed = (document.getElementById("seed") as HTMLInputElement).value.trim() || undefined;
-    run = new Run(seed);
-    phase = "draft";
+  document.getElementById("sigils")!.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest("[data-s]") as HTMLElement | null;
+    if (!b) return;
+    foundSigil = b.dataset.s!;
+    renderFound();
+  });
+  document.getElementById("found")!.addEventListener("click", () => {
+    const name = (document.getElementById("pit-name") as HTMLInputElement).value.trim();
+    foundGuild(guild, name || "The Gordion Pit", foundSigil);
+    applyGuildToConfig(guild);
+    phase = "settlement";
     render();
   });
+}
+
+// ---------------------------------------------------------------- settlement
+
+function renderSettlement(): void {
+  const g = guild;
+  const buildingCard = (b: (typeof BUILDINGS)[number]): string => {
+    const lvl = buildingLevel(g, b.id);
+    const cost = upgradeCost(g, b.id);
+    const blocked = upgradeBlocked(g, b.id);
+    const dots = Array.from({ length: b.max }, (_, i) => (i < lvl ? "●" : "○")).join("");
+    let action: string;
+    if (cost === null) action = `<span class="pill">Maxed</span>`;
+    else if (blocked) action = `<span class="pill" style="color:var(--bad);border-color:var(--bad)">🔒 ${esc(blocked)}</span>`;
+    else
+      action = `<button class="${g.gold >= cost ? "primary" : ""}" data-up="${b.id}" ${g.gold >= cost ? "" : "disabled"}>${icon("loot")} ${cost}g</button>`;
+    return `
+    <div class="bcard">
+      <div class="bcard__head"><span class="bcard__glyph">${b.glyph}</span>
+        <div><div class="bcard__name">${esc(b.name)}</div><div class="bcard__dots">${dots}</div></div>
+      </div>
+      <div class="sub">${esc(b.blurb)}</div>
+      <div class="bcard__now">Now: ${esc(b.effect(lvl))}</div>
+      ${cost !== null && !blocked ? `<div class="bcard__next">Next: ${esc(b.effect(lvl + 1))}</div>` : ""}
+      <div class="bcard__act">${action}</div>
+    </div>`;
+  };
+
+  app.innerHTML = `
+  <div class="wrap col">
+    <div class="settle-head">
+      <div><div class="eyebrow">Settlement</div><h1>${esc(g.sigil)} ${esc(g.name ?? "The Gordion Pit")}</h1></div>
+      <div class="statrow">
+        ${stat("loot", `${g.gold}g`, "gold", "treasury")}
+        ${stat("star", g.renown, "", "renown")}
+        ${stat("check", `Deep ${g.bestDepth}`, "", "deepest ever")}
+      </div>
+    </div>
+
+    <div class="pit-panel" id="pit">
+      <div class="pit-void"></div>
+      <div class="pit-copy">
+        <div class="eyebrow">The Descent</div>
+        <h2 style="color:var(--gold);font-size:22px">Assemble an expedition</h2>
+        <p class="sub">Draft ${RUN_CONFIG.partySize} from a pool of ${RUN_CONFIG.draftPool} · level cap ${RUN_CONFIG.levelCap}${RUN_CONFIG.gearTier ? " · Guild arms issued" : ""}</p>
+        <button class="primary big" id="descend-btn">${icon("extract")} Into the Pit</button>
+      </div>
+    </div>
+
+    <h2>Buildings</h2>
+    <div class="buildings">${BUILDINGS.map(buildingCard).join("")}</div>
+
+    <details class="ledger">
+      <summary>The Ledger — ${g.runs.length} runs · ${g.graveyard.length} dead</summary>
+      <div class="panel statrow">
+        ${stat("loot", `${g.bestBanked}g`, "gold", "richest bank")}
+        ${stat("loot", `${g.totalBanked}g`, "", "banked, all-time")}
+        ${stat("extract", g.retires, "", "warbands retired")}
+        ${stat("skull", g.graveyard.length, "bad", "the fallen")}
+      </div>
+      ${g.graveyard.length ? `<h3>Hall of the Dead</h3><div class="col" style="gap:6px">${g.graveyard.slice(0, 14).map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}</div>` : ""}
+      ${g.runs.length ? `<h3>Recent runs</h3><div class="col" style="gap:4px">${g.runs.slice(0, 10).map((r) => `<div class="sub mono">${r.outcome === "retired" ? "◈" : "☠"} Deep ${r.depth} · ${r.banked}g · ${r.party.map(esc).join(", ")}</div>`).join("")}</div>` : ""}
+    </details>
+  </div>`;
+
+  document.getElementById("pit")!.addEventListener("click", startRun);
+  document.getElementById("descend-btn")!.addEventListener("click", (e) => {
+    e.stopPropagation();
+    startRun();
+  });
+  app.querySelectorAll<HTMLElement>("[data-up]").forEach((b) => {
+    b.addEventListener("click", () => {
+      if (doUpgrade(guild, b.dataset.up as never)) {
+        flashToast("Built.");
+        renderSettlement();
+      }
+    });
+  });
+}
+
+function startRun(): void {
+  applyGuildToConfig(guild);
+  run = new Run(undefined, guild.name ?? "The Gordion Pit");
+  phase = "draft";
+  render();
 }
 
 // ---------------------------------------------------------------- draft
 
 function renderDraft(): void {
   if (!run) return;
-  const need = PARTY_SIZE - run.state.party.length;
+  const need = run.partySize - run.state.party.length;
   app.innerHTML = `
   <div class="wrap col">
     <div class="spread">
-      <div><div class="eyebrow">Draft — pick ${need} more</div><h1>Your warband</h1></div>
+      <div><div class="eyebrow">Draft — pick ${need} more of ${run.partySize}</div><h1>Your warband</h1></div>
       <span class="sub">seed <span class="kbd">${esc(run.state.seed)}</span></span>
     </div>
     <p class="sub">Every pick re-rolls the whole pool. You can't wait for a card to come back.</p>
 
+    <div class="row">
+      <button id="mull" ${run.mulligansLeft > 0 ? "" : "disabled"}>${icon("round")} Mulligan (${run.mulligansLeft})</button>
+      <button id="adroll" title="A rewarded ad in the shipped game — free here">${icon("star")} Reroll — watch ad</button>
+    </div>
+
     <h2>Pool</h2>
     <div class="cards" id="pool">${run.pool.map((c) => characterCard(c, { pick: true })).join("")}</div>
 
-    <h2>Warband · ${run.state.party.length}/${PARTY_SIZE}</h2>
+    <h2>Warband · ${run.state.party.length}/${run.partySize}</h2>
     <div class="cards">${run.state.party.map((c) => characterCard(c)).join("") || '<p class="sub">— empty —</p>'}</div>
 
     ${run.draftComplete ? `<div class="row"><button class="primary" id="descend">${icon("chevron")} Descend into the Pit</button></div>` : ""}
@@ -168,6 +257,14 @@ function renderDraft(): void {
     const el = (e.target as HTMLElement).closest(".ucard") as HTMLElement | null;
     if (!el || !run) return;
     run.pickRecruit(el.dataset.id!);
+    render();
+  });
+  document.getElementById("mull")?.addEventListener("click", () => {
+    if (run!.mulligan()) render();
+  });
+  document.getElementById("adroll")?.addEventListener("click", () => {
+    run!.adReroll();
+    flashToast("▶ Ad placeholder — pool re-rolled (free in playtest)");
     render();
   });
   document.getElementById("descend")?.addEventListener("click", () => {
@@ -194,25 +291,27 @@ function renderDescent(): void {
     <div class="panel statrow">
       ${stat("loot", `${st.gold}g`, "gold", "carrying")}
       ${stat("check", `${st.bankedGold}g`, "", "banked — safe")}
-      ${stat("hp", `${st.party.length}/${PARTY_SIZE}`, "", "warband")}
+      ${stat("hp", `${st.party.length}/${run.partySize}`, "", "warband")}
       ${stat("star", run.avgPartyLevel().toFixed(1), "", "avg level")}
     </div>
 
     ${extractionHere ? renderExtractionPanel() : ""}
 
     <div class="cards">
-      ${st.nextFloors.map((c, i) => `
+      ${st.nextFloors
+        .map(
+          (c, i) => `
         <div class="ucard ucard--pick" data-idx="${i}">
           <div class="ucard__head">
-            <div>
-              <div class="ucard__name">${esc(c.label)}</div>
-              <div class="ucard__kind">${kindIcon[c.kind] ?? ""} ${esc(c.biome)}</div>
-            </div>
+            <div><div class="ucard__name">${esc(c.label)}</div>
+              <div class="ucard__kind">${kindIcon[c.kind] ?? ""} ${esc(c.biome)}</div></div>
             <span class="pill pill--threat" title="threat">${icon("skull").repeat(c.threat)}</span>
           </div>
           ${c.modifiers.length ? `<div class="taglist">${c.modifiers.map((m) => `<span class="tag">${esc(m)}</span>`).join("")}</div>` : ""}
           <div class="sub">${esc(c.blurb)}</div>
-        </div>`).join("")}
+        </div>`,
+        )
+        .join("")}
     </div>
 
     <h2>Warband</h2>
@@ -230,6 +329,8 @@ function renderDescent(): void {
         return;
       }
       enc = e;
+      armed = null;
+      picking = null;
       phase = "encounter";
       render();
     });
@@ -239,12 +340,13 @@ function renderDescent(): void {
 
 function renderExtractionPanel(): string {
   const st = run!.state;
+  const cap = run!.bankCap;
   return `
   <div class="panel panel--gold col">
     <h2>${icon("extract")} Extraction Shaft</h2>
-    <p class="sub">Use it, send it, or lose it. Press on and the gold rides on your bodies.</p>
+    <p class="sub">Use it, send it, or lose it. The Vault takes up to ${cap >= 100000 ? "everything" : cap + "g"} per shaft.</p>
     <div class="row">
-      <button id="ex-bank" ${st.gold <= 0 ? "disabled" : ""}>${icon("check")} Bank ${st.gold}g, press on</button>
+      <button id="ex-bank" ${st.gold <= 0 ? "disabled" : ""}>${icon("check")} Bank ${Math.min(st.gold, cap)}g, press on</button>
       <button class="primary" id="ex-retire">${icon("extract")} Retire — end the run</button>
     </div>
   </div>`;
@@ -276,8 +378,7 @@ function renderEncounter(): void {
       <div>
         <div id="board-holder"><canvas id="board"></canvas></div>
         <div class="legend">
-          <span>${icon("move")} move</span>
-          <span>${icon("atk")} attack</span>
+          <span>${icon("move")} move</span><span>${icon("atk")} attack</span>
           <span><span class="sw" style="background:rgba(198,90,58,.4)"></span> threatened</span>
           <span><span class="sw" style="background:#93a14f"></span> acid</span>
           <span><span class="sw" style="background:#9a9384"></span> spikes</span>
@@ -303,12 +404,19 @@ function renderEncounter(): void {
   refreshEncounter();
 }
 
-function onResize(): void { board?.fit(); }
+function onResize(): void {
+  board?.fit();
+}
 function onKey(e: KeyboardEvent): void {
-  if (phase !== "encounter" || !enc) return;
-  if ((e.key === " " || e.key === "Enter") && enc.phase === "player") {
+  if (phase !== "encounter" || !enc || enc.phase !== "player") return;
+  if (e.key === " " || e.key === "Enter") {
     e.preventDefault();
-    enc.endTurn();
+    if (armed) executeArmed();
+    else enc.endTurn();
+    refreshEncounter();
+  } else if (e.key === "Escape") {
+    armed = null;
+    picking = null;
     refreshEncounter();
   }
 }
@@ -316,13 +424,16 @@ function onKey(e: KeyboardEvent): void {
 function teardownEncounter(): void {
   window.removeEventListener("resize", onResize);
   document.removeEventListener("keydown", onKey);
-  if (enemyTimer) { clearTimeout(enemyTimer); enemyTimer = null; }
+  if (enemyTimer) {
+    clearTimeout(enemyTimer);
+    enemyTimer = null;
+  }
 }
 
 function onHexHover(h: Hex | null): void {
   if (!enc || !board) return;
   board.pathPreview = [];
-  if (h && enc.phase === "player" && enc.active && board.reachable.has(key(h)) && !enc.unitAt(h)) {
+  if (!armed && !picking && h && enc.phase === "player" && enc.active && board.reachable.has(key(h)) && !enc.unitAt(h)) {
     const p = enc.pathTo(enc.active, h);
     if (p) board.pathPreview = p;
   }
@@ -331,45 +442,101 @@ function onHexHover(h: Hex | null): void {
 
 function onHexClick(h: Hex): void {
   if (!enc || !board) return;
-  if (enc.phase === "deploy") { enc.placeNext(h); return; }
+  if (enc.phase === "deploy") {
+    enc.placeNext(h);
+    return;
+  }
   if (enc.phase !== "player" || !enc.active) return;
   const u = enc.active;
-  const target = enc.unitAt(h);
+  const targetU = enc.unitAt(h);
 
-  if (pendingFeature) {
-    if (pendingFeature.needs === "hex") {
-      if (!target) enc.teleport(h);
-    } else {
-      const wantEnemy = pendingFeature.needs === "enemy";
-      if (target && (wantEnemy ? target.team === "enemy" : target.team === "player")) {
-        if (pendingFeature.id === "__shove") {
-          if (enc.shoveTargets(u).includes(target)) enc.shove(target.id);
-        } else if (pendingFeature.id === "__attack") {
-          if (enc.attackTargets(u).includes(target)) enc.doAttack(target.id);
-        } else {
-          enc.useFeature(pendingFeature.id, target.id);
-        }
-      }
+  // second tap on the armed thing → confirm
+  if (armed) {
+    const confirm =
+      (armed.t === "move" && eq(armed.hex, h)) ||
+      (armed.t === "hex" && eq(armed.hex, h)) ||
+      (armed.t === "target" && targetU?.id === armed.unitId);
+    if (confirm) {
+      executeArmed();
+      return;
     }
-    pendingFeature = null;
-    refreshEncounter();
-    return;
   }
-  if (target && target.team === "enemy" && enc.attackTargets(u).includes(target)) {
-    enc.doAttack(target.id);
-    return;
+
+  // arm a new candidate for this tap
+  if (picking) {
+    if (picking.needs === "enemy" && targetU?.team === "enemy") {
+      armed = { t: "target", id: picking.id, unitId: targetU.id };
+    } else if (picking.needs === "ally" && targetU?.team === "player") {
+      armed = { t: "target", id: picking.id, unitId: targetU.id };
+    } else if (picking.needs === "hex" && !targetU) {
+      armed = { t: "hex", id: "__teleport", hex: h };
+    } else if (picking.needs === "area") {
+      armed = { t: "hex", id: picking.id, hex: h };
+    } else {
+      armed = null;
+    }
+  } else if (targetU && targetU.team === "enemy" && enc.attackTargets(u).some((z) => z.id === targetU.id)) {
+    armed = { t: "target", id: "__attack", unitId: targetU.id };
+  } else if (!targetU && enc.moveOptions(u).has(key(h))) {
+    armed = { t: "move", hex: h };
+  } else {
+    armed = null;
   }
-  if (!target && board.reachable.has(key(h))) enc.moveTo(h);
+  refreshEncounter();
+}
+
+function executeArmed(): void {
+  if (!enc || !armed) return;
+  const a = armed;
+  armed = null;
+  picking = null;
+  if (a.t === "move") enc.moveTo(a.hex);
+  else if (a.t === "target") {
+    if (a.id === "__attack") enc.doAttack(a.unitId);
+    else if (a.id === "__shove") enc.shove(a.unitId);
+    else enc.useFeature(a.id, a.unitId);
+  } else if (a.t === "hex") {
+    if (a.id === "__teleport") enc.teleport(a.hex);
+    else enc.areaFeature(a.id, a.hex);
+  }
+  refreshEncounter();
 }
 
 function refreshEncounter(): void {
   if (!enc || !board || phase !== "encounter") return;
 
   board.deploy = enc.phase === "deploy" ? enc.deployZone : [];
+  board.armedMove = null;
+  board.armedTargetId = null;
+  board.armedArea = [];
+  board.targetables = new Set();
+
   if (enc.phase === "player" && enc.active) {
-    board.reachable = enc.moveOptions(enc.active);
-    board.attackable = new Set(enc.attackTargets(enc.active).map((t) => key(t.pos)));
+    const u = enc.active;
+    board.reachable = enc.moveOptions(u);
+    board.attackable = new Set(enc.attackTargets(u).map((t) => key(t.pos)));
     board.threatened = enc.threatenedHexes();
+
+    if (picking) {
+      if (picking.needs === "enemy")
+        board.targetables = new Set(
+          (picking.id === "__attack" ? enc.attackTargets(u) : enc.enemiesOf(u)).map((z) => key(z.pos)),
+        );
+      else if (picking.needs === "ally")
+        board.targetables = new Set([u, ...enc.allies(u)].map((z) => key(z.pos)));
+    }
+    const a = armed;
+    if (a) {
+      if (a.t === "move") {
+        board.armedMove = a.hex;
+        const p = enc.pathTo(u, a.hex);
+        if (p) board.pathPreview = p;
+      } else if (a.t === "target") {
+        board.armedTargetId = a.unitId;
+      } else if (a.t === "hex") {
+        board.armedArea = a.id === "__teleport" ? [a.hex] : enc.areaHexes(a.id, a.hex);
+      }
+    }
   } else {
     board.reachable = new Map();
     board.attackable = new Set();
@@ -384,8 +551,10 @@ function refreshEncounter(): void {
     const won = enc.phase === "won";
     setTimeout(() => {
       report = run!.resolveEncounter();
-      if (won && !run!.state.over) { phase = "aftermath"; render(); }
-      else finishRun();
+      if (won && !run!.state.over) {
+        phase = "aftermath";
+        render();
+      } else finishRun();
     }, 700);
     return;
   }
@@ -395,7 +564,7 @@ function refreshEncounter(): void {
       if (!enc || enc.phase !== "enemy") return;
       enc.runEnemyTurn();
       refreshEncounter();
-    }, 500);
+    }, 480);
   }
 }
 
@@ -409,11 +578,14 @@ function renderHud(): void {
     hud.innerHTML = `
       <div class="active-panel">
         <div class="active-panel__name">${icon("extract")} Deploy — ${placed}/${placed + enc.toDeploy.length}</div>
-        <p class="sub">Click a green tile per fighter. Every enemy and its plan is already visible — the red wash is where they can reach you.</p>
+        <p class="sub">Tap a green tile per fighter. Every enemy and its plan is already visible — the red wash is where they can reach you.</p>
         <button class="primary" id="auto">${icon("check")} Auto-deploy</button>
       </div>
       <div class="roster">${roster()}</div>`;
-    document.getElementById("auto")?.addEventListener("click", () => { enc!.autoDeploy(); refreshEncounter(); });
+    document.getElementById("auto")?.addEventListener("click", () => {
+      enc!.autoDeploy();
+      refreshEncounter();
+    });
     return;
   }
 
@@ -424,10 +596,64 @@ function renderHud(): void {
       <span class="turnbar__who">${who}</span>
       <span class="turnbar__round">${icon("round")} Round ${enc.round}</span>
     </div>
+    ${armedBar()}
     ${active && active.team === "player" ? activePanel(active) : `<p class="hint">${icon("threat")} Watch the reticles.</p>`}
     <div class="roster">${roster()}</div>`;
 
+  document.getElementById("confirm-btn")?.addEventListener("click", () => {
+    executeArmed();
+    refreshEncounter();
+  });
+  document.getElementById("cancel-btn")?.addEventListener("click", () => {
+    armed = null;
+    picking = null;
+    refreshEncounter();
+  });
   if (active && active.team === "player") wirePlayerControls();
+}
+
+function armedBar(): string {
+  if (!enc || !enc.active) return "";
+  const u = enc.active;
+  let label = "";
+  if (picking && !armed) {
+    label = `<span class="hint">${icon("threat")} Tap ${picking.needs === "area" ? "the centre of the blast" : "a " + picking.needs} on the board</span>`;
+    return `<div class="armbar">${label}<button id="cancel-btn">${icon("x")}</button></div>`;
+  }
+  const a = armed;
+  if (!a) return "";
+  if (a.t === "move") {
+    const cost = enc.moveOptions(u).get(key(a.hex)) ?? 0;
+    label = `${icon("move")} Move here — ${cost} of ${enc.moveBudget(u)}`;
+  } else if (a.t === "target") {
+    const tu = enc.units.find((z) => z.id === a.unitId);
+    if (["__attack", "power_attack", "divine_smite", "cleave"].includes(a.id)) {
+      const pv = tu ? enc.attackPreview(u, tu) : null;
+      label = `${icon("atk")} ${a.id === "__attack" ? "Attack" : FEATNAME(a.id)} ${esc(tu?.name ?? "")}${pv ? ` — ${Math.round(pv.chance * 100)}% · ${pv.minDmg}–${pv.maxDmg}` : ""}`;
+    } else {
+      label = `${icon("star")} ${FEATNAME(a.id)} → ${esc(tu?.name ?? "")}`;
+    }
+  } else {
+    if (a.id === "__teleport") label = `${icon("dash")} Blink here`;
+    else {
+      const hit = enc.units.filter((z) => z.alive && board!.armedArea.some((ah) => eq(ah, z.pos)));
+      label = `${icon("star")} ${FEATNAME(a.id)} — ${hit.length} in the blast`;
+    }
+  }
+  return `<div class="armbar armbar--live">
+    <span>${label}</span>
+    <span class="row" style="gap:4px">
+      <button class="primary" id="confirm-btn">${icon("check")} Confirm</button>
+      <button id="cancel-btn">${icon("x")}</button>
+    </span>
+  </div>`;
+}
+
+function FEATNAME(id: string): string {
+  if (id === "__attack") return "Attack";
+  if (id === "__shove") return "Shove";
+  if (id === "__teleport") return "Misty Step";
+  return FEATURES[id]?.name ?? id[0].toUpperCase() + id.slice(1).replace(/_/g, " ");
 }
 
 function activePanel(u: Unit): string {
@@ -436,8 +662,8 @@ function activePanel(u: Unit): string {
   const feats = e.featureButtons(u);
   const shoveN = e.shoveTargets(u).length;
   const canAttack = !u.actionUsed && e.attackTargets(u).length > 0;
-  const btn = (act: string, ic: Parameters<typeof icon>[0], label: string, on: boolean, cls = "") =>
-    `<button data-act="${act}" class="${cls}" ${on ? "" : "disabled"}>${icon(ic)} ${label}</button>`;
+  const btn = (act: string, ic: Parameters<typeof icon>[0], label: string, on: boolean, danger = false) =>
+    `<button data-act="${act}" class="${danger ? "danger" : ""}" ${on ? "" : "disabled"}>${icon(ic)} ${label}</button>`;
 
   const conds = u.conditions
     .map((c) => {
@@ -471,14 +697,22 @@ function activePanel(u: Unit): string {
       ${btn("dash", "dash", "Dash", !u.actionUsed)}
       ${btn("disengage", "disengage", "Disengage", !u.actionUsed)}
       ${btn("dodge", "dodge", "Dodge", !u.actionUsed)}
-      ${shoveN ? btn("shove", "shove", `Shove ${shoveN}`, !u.actionUsed) : ""}
+      ${shoveN ? btn("shove", "shove", `Shove`, !u.actionUsed) : ""}
     </div>
-    ${feats.length ? `<div class="actiongrid">${feats.map((f) => `<button data-feat="${f.id}" data-needs="${f.needsTarget}" ${f.enabled ? "" : "disabled"} title="${esc(f.text)}">${icon(f.kind === "bonus" ? "buff" : "star")} ${esc(f.name)}</button>`).join("")}</div>` : ""}
+    ${
+      feats.length
+        ? `<div class="actiongrid">${feats
+            .map(
+              (f) =>
+                `<button data-feat="${f.id}" data-needs="${f.needsTarget}" data-self="${f.selfCentered ? 1 : 0}" ${f.enabled ? "" : "disabled"} title="${esc(f.text)}">${icon(f.kind === "bonus" ? "buff" : "star")} ${esc(f.name)}</button>`,
+            )
+            .join("")}</div>`
+        : ""
+    }
     <div class="row">
       <button class="primary" data-act="end">${icon("check")} End turn</button>
-      <button class="danger" data-act="giveup" title="Abandon the run">${icon("x")}</button>
+      ${btn("giveup", "x", "", true)}
     </div>
-    ${pendingFeature ? `<p class="hint">${icon("threat")} Pick a ${pendingFeature.needs} target on the board</p>` : ""}
   </div>`;
 }
 
@@ -486,22 +720,18 @@ function wirePlayerControls(): void {
   const hud = document.getElementById("hud")!;
   hud.querySelectorAll<HTMLElement>("[data-act]").forEach((b) => {
     b.addEventListener("click", () => {
-      if (!enc) return;
+      if (!enc || !enc.active) return;
       const a = b.dataset.act!;
-      if (a === "attack") { pendingFeature = { id: "__attack", needs: "enemy" }; }
-      else if (a === "dash") enc.dash();
-      else if (a === "disengage") enc.disengage();
-      else if (a === "dodge") enc.dodge();
-      else if (a === "end") enc.endTurn();
-      else if (a === "shove") {
-        const t = enc.shoveTargets(enc.active!);
-        if (t.length === 1) enc.shove(t[0].id);
-        else pendingFeature = { id: "__shove", needs: "enemy" };
-      } else if (a === "giveup") {
+      armed = null;
+      if (a === "attack") picking = { id: "__attack", needs: "enemy" };
+      else if (a === "shove") picking = { id: "__shove", needs: "enemy" };
+      else if (a === "dash") { picking = null; enc.dash(); }
+      else if (a === "disengage") { picking = null; enc.disengage(); }
+      else if (a === "dodge") { picking = null; enc.dodge(); }
+      else if (a === "end") { picking = null; enc.endTurn(); }
+      else if (a === "giveup") {
         if (confirm("Abandon the run? Everything on your bodies is lost.")) {
           enc.phase = "lost";
-          refreshEncounter();
-          return;
         }
       }
       refreshEncounter();
@@ -509,11 +739,16 @@ function wirePlayerControls(): void {
   });
   hud.querySelectorAll<HTMLElement>("[data-feat]").forEach((b) => {
     b.addEventListener("click", () => {
-      if (!enc) return;
+      if (!enc || !enc.active) return;
       const id = b.dataset.feat!;
-      const needs = b.dataset.needs as "ally" | "enemy" | "none" | "hex";
-      if (needs === "none") { enc.useFeature(id); refreshEncounter(); }
-      else { pendingFeature = { id, needs }; refreshEncounter(); }
+      const needs = b.dataset.needs as "enemy" | "ally" | "none" | "hex" | "area";
+      const self = b.dataset.self === "1";
+      armed = null;
+      picking = null;
+      if (needs === "none") enc.useFeature(id);
+      else if (needs === "area" && self) armed = { t: "hex", id, hex: { ...enc.active.pos } };
+      else picking = { id, needs };
+      refreshEncounter();
     });
   });
 }
@@ -527,7 +762,6 @@ function roster(): string {
       const frac = u.hp / u.maxHp;
       const hpCls = frac > 0.5 ? "" : frac > 0.25 ? "hpbar--hurt" : "hpbar--crit";
       const active = enc!.active?.id === u.id;
-      const state = u.downed ? "urow--downed" : "";
       const conds = u.conditions
         .map((c) => {
           const m = CONDITION_ICON[c.kind];
@@ -539,17 +773,14 @@ function roster(): string {
           ? `<span class="intent" title="${esc(u.intent.note)}">${icon(u.intent.kind === "attack" ? "atk" : "move")}${u.intent.targetId ? "→" + initialOf(u.intent.targetId) : ""}</span>`
           : "";
       return `
-      <div class="urow urow--${u.team} ${active ? "urow--active" : ""} ${state}">
+      <div class="urow urow--${u.team} ${active ? "urow--active" : ""} ${u.downed ? "urow--downed" : ""}">
         <span class="urow__bar"></span>
         <div class="urow__main">
-          <div class="urow__line">
-            <span class="urow__name">${esc(u.name)}</span>
-            <span class="conds">${conds}</span>
-          </div>
+          <div class="urow__line"><span class="urow__name">${esc(u.name)}</span><span class="conds">${conds}</span></div>
           ${u.downed ? `<div class="hint" style="font-size:10px">${icon("downed")} down — ${u.deathFail}/3</div>` : `<div class="hpbar ${hpCls}"><i style="width:${Math.max(0, frac * 100)}%"></i></div>`}
         </div>
         <div class="urow__side">
-          <span class="urow__hp" style="color:${frac > 0.5 ? "var(--good)" : frac > 0.25 ? "var(--warn)" : "var(--bad)"}">${u.downed ? "—" : `${u.hp}`}</span>
+          <span class="urow__hp" style="color:${frac > 0.5 ? "var(--good)" : frac > 0.25 ? "var(--warn)" : "var(--bad)"}">${u.downed ? "—" : u.hp}</span>
           ${intent || `<span class="sub mono" style="font-size:10px">AC${u.ac}</span>`}
         </div>
       </div>`;
@@ -561,7 +792,6 @@ function initialOf(unitId: string): string {
   const u = enc?.units.find((z) => z.id === unitId);
   return u ? (u.name[0] ?? "?").toUpperCase() : "?";
 }
-
 function unitClassId(u: Unit): string {
   return u.tags.find((t) => t in CLASSES) ?? "fighter";
 }
@@ -580,7 +810,7 @@ function renderLog(): void {
     .join("");
 }
 
-// ---------------------------------------------------------------- aftermath
+// ---------------------------------------------------------------- aftermath / debrief
 
 function renderAftermath(): void {
   if (!run || !report) return;
@@ -601,26 +831,29 @@ function renderAftermath(): void {
     <div class="cards">${run.state.party.map((c) => characterCard(c)).join("")}</div>
     <div class="row"><button class="primary" id="go">${icon("chevron")} Onward</button></div>
   </div>`;
-  document.getElementById("go")!.addEventListener("click", () => { enc = null; phase = "descent"; render(); });
+  document.getElementById("go")!.addEventListener("click", () => {
+    enc = null;
+    phase = "descent";
+    render();
+  });
 }
-
-// ---------------------------------------------------------------- game over
 
 function finishRun(): void {
   if (!run) return;
   const st = run.state;
   const outcome = st.outcome ?? "wipe";
-  meta = recordRun(
-    meta,
+  recordRun(
+    guild,
     { seed: st.seed, depth: st.depth, outcome, banked: st.bankedGold, party: st.party.map((c) => c.name) },
     st.graveyard,
   );
+  applyGuildToConfig(guild);
   teardownEncounter();
-  phase = "gameover";
+  phase = "debrief";
   render();
 }
 
-function renderGameOver(): void {
+function renderDebrief(): void {
   if (!run) return;
   const st = run.state;
   const retired = st.outcome === "retired";
@@ -630,29 +863,21 @@ function renderGameOver(): void {
     <div class="panel col">
       <div class="statrow">
         ${stat("chevron", `Deep ${st.depth}`, "", "reached")}
-        ${stat("check", `${st.bankedGold}g`, "gold", "banked")}
+        ${stat("check", `+${st.bankedGold}g`, "gold", "to the treasury")}
         ${!retired ? stat("loot", `${st.gold}g`, "bad", "lost with the bodies") : ""}
       </div>
-      <p class="sub">${retired
-        ? `Everyone got out.${report ? ` Retirement bonus +${report.loot}g.` : ""}`
-        : `Only what was sent up earlier survives.`}</p>
-      ${st.graveyard.length ? `<h3>Fallen this run</h3>${st.graveyard.map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}` : ""}
+      <p class="sub">${retired ? `Everyone got out.${report ? ` Retirement bonus +${report.loot}g.` : ""}` : `Only what was banked at a shaft made it up.`}
+      Treasury now <b>${guild.gold}g</b>.</p>
+      ${st.graveyard.length ? `<h3>Fallen this run</h3><div class="col" style="gap:6px">${st.graveyard.map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}</div>` : ""}
     </div>
-    <div class="panel statrow">
-      ${stat("chevron", `Deep ${meta.bestDepth}`, "", "deepest ever")}
-      ${stat("loot", `${meta.bestBanked}g`, "gold", "richest bank")}
-      ${stat("loot", `${meta.totalBanked}g`, "", "total banked")}
-    </div>
-    <div class="row">
-      <button class="primary" id="again">${icon("round")} New run</button>
-      <button id="title">Title</button>
-    </div>
+    <div class="row"><button class="primary" id="home">${icon("extract")} Back to the Pit</button></div>
   </div>`;
-  document.getElementById("again")!.addEventListener("click", () => {
-    run = new Run(); enc = null; report = null; phase = "draft"; render();
-  });
-  document.getElementById("title")!.addEventListener("click", () => {
-    run = null; enc = null; phase = "title"; render();
+  document.getElementById("home")!.addEventListener("click", () => {
+    run = null;
+    enc = null;
+    report = null;
+    phase = "settlement";
+    render();
   });
 }
 
@@ -662,14 +887,22 @@ function flashToast(msg: string): void {
   const t = document.createElement("div");
   t.textContent = msg;
   t.style.cssText =
-    "position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#1b1410;border:1px solid var(--gold);color:#ece0cd;padding:8px 15px;border-radius:5px;z-index:9998;font:13px/1 var(--font-mono)";
+    "position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#1b1410;border:1px solid var(--gold);color:#ece0cd;padding:8px 15px;border-radius:5px;z-index:9998;font:13px/1.3 var(--font-mono);max-width:90vw;text-align:center";
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1800);
+  setTimeout(() => t.remove(), 2000);
 }
 
 function maybeDevJump(): boolean {
   const p = new URLSearchParams(location.search);
-  if (p.get("dev") !== "enc") return false;
+  const d = p.get("dev");
+  if (d === "settle") {
+    guild.name = guild.name ?? "Dev Pit";
+    guild.gold = 9000;
+    phase = "settlement";
+    return true;
+  }
+  if (d !== "enc") return false;
+  applyGuildToConfig(guild);
   run = new Run(p.get("seed") || "dev-seed");
   while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
   run.beginDescent();
@@ -678,26 +911,51 @@ function maybeDevJump(): boolean {
     e.autoDeploy();
     const rounds = parseInt(p.get("rounds") || "0", 10);
     for (let g = 0; g < rounds * 40 && (e.phase === "player" || e.phase === "enemy"); g++) {
-      if (e.phase === "enemy") { e.runEnemyTurn(); continue; }
+      if (e.phase === "enemy") {
+        e.runEnemyTurn();
+        continue;
+      }
       const u = e.active;
-      if (!u) { e.endTurn(); continue; }
+      if (!u) {
+        e.endTurn();
+        continue;
+      }
       const t = e.attackTargets(u).sort((a, b) => a.hp - b.hp)[0];
-      if (t && !u.actionUsed) { e.doAttack(t.id); continue; }
+      if (t && !u.actionUsed) {
+        e.doAttack(t.id);
+        continue;
+      }
       const foes = e.units.filter((x) => x.team === "enemy" && x.alive);
       let moved = false;
       if (foes.length && e.moveBudget(u) > 0) {
-        let best: string | null = null, bd = Infinity;
+        let best: string | null = null,
+          bd = Infinity;
         for (const k of e.moveOptions(u).keys()) {
           const [q, r] = k.split(",").map(Number);
-          const d = Math.min(...foes.map((f) => Math.abs(f.pos.q - q) + Math.abs(f.pos.r - r)));
-          if (d < bd) { bd = d; best = k; }
+          const dd = Math.min(...foes.map((f) => Math.abs(f.pos.q - q) + Math.abs(f.pos.r - r)));
+          if (dd < bd) {
+            bd = dd;
+            best = k;
+          }
         }
-        if (best) { const [q, r] = best.split(",").map(Number); moved = e.moveTo({ q, r }); }
+        if (best) {
+          const [q, r] = best.split(",").map(Number);
+          moved = e.moveTo({ q, r });
+        }
       }
       if (!moved) e.endTurn();
     }
+    let guard2 = 0;
+    while (e.phase === "enemy" && guard2++ < 30) e.runEnemyTurn();
     enc = e;
     phase = "encounter";
+    if (p.get("arm") === "move" && e.phase === "player" && e.active) {
+      const first = [...e.moveOptions(e.active).keys()][0];
+      if (first) {
+        const [q, r] = first.split(",").map(Number);
+        armed = { t: "move", hex: { q, r } };
+      }
+    }
   }
   return true;
 }

@@ -16,7 +16,10 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 |---|---|
 | Seeded, deterministic sim | ✅ everything routes through one RNG; same seed + same picks = same run |
 | Hex grid: elevation, terrain, hazards (acid/spikes/fire/gas), chasms, LOS, cover, A* | ✅ |
-| Draft: roll `N=3`, pick `X=3`, **full pool re-roll** after every pick | ✅ |
+| **Settlement hub** — found & name the Pit, then a persistent campaign screen: click the Pit to launch a run; 7 upgradable buildings (Recruitment Hall `N`, Barracks `X` record-gated, Training Yard `W`, Recruit Pedigree stat floor, Smithy starting gear, Vault bank cap, Infirmary death-saves) spend the treasury; a Ledger of records / the dead / past runs | ✅ |
+| Draft: roll `N` (from Recruitment Hall), pick `X`, **full pool re-roll** after every pick; free Mulligan + a "watch ad" reroll stub (free in playtest) | ✅ |
+| **Tap-to-confirm targeting** — a first tap on the board *arms* the move / attack / feature / AOE (highlighted, with a hit-chance or blast-count readout); a second tap on it, the **Confirm** button, or <kbd>Enter</kbd> commits; <kbd>Esc</kbd> or ✕ cancels. Built for touch | ✅ |
+| **AOE abilities** — Fighter Cleave, Barbarian Sweep, Ranger Volley, Bard Thunderwave, Wizard/Sorcerer Burning Hands (targeted burst, hits allies too), Cleric Spirit Guardians (passive aura) | ✅ |
 | 4 races (Human/Dwarf/Elf/Half-Orc); **all 13 classes** (Fighter, Rogue, Ranger, Cleric, Barbarian, Paladin, Monk, Bard, Druid, Sorcerer, Warlock, Wizard, Artificer) to Lv 5, each with a starting weapon + 2–3 signature abilities — simplified kits, not full spell lists | ✅ |
 | ~11 traits (boons/banes/quirks) + racial passives | ✅ |
 | Action economy: Move / Action / Bonus / Reaction; Dash, Disengage, Dodge, **Shove** (into chasms/hazards), opportunity attacks | ✅ |
@@ -33,7 +36,7 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 
 ## What's out (don't file bugs for these)
 
-Guild creation & upgrades · Charters · Covenants · multiclass / subclasses / feats · gear beyond the starting weapon · injuries persisting between runs · bosses · Rest/Market/Shrine/Vault floors · floor modifiers doing anything · sound · animation beyond redraws · mobile layout polish.
+Charters · Covenants · multiclass / subclasses / feats · a real gear/inventory system (Smithy gives flat bonuses) · injuries persisting between runs · bosses · Rest/Market/Shrine/Vault *floors* (the Vault *building* is in) · floor modifiers doing anything · a real rewarded-ad SDK · sound · animation beyond redraws.
 
 The interface language (palette, icon set, label map, board layers) is documented in [UI.md](UI.md).
 

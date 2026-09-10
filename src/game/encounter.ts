@@ -3,6 +3,7 @@ import { Hex, distance, eq, key, neighbors } from "../core/hex";
 import { HexGrid, HazardKind } from "../core/grid";
 import { Condition, ConditionKind, Objective, Unit } from "./types";
 import { FEATURES } from "./data";
+import { RUN_CONFIG } from "./config";
 
 export interface AttackPreview {
   target: Unit;
@@ -20,8 +21,10 @@ export interface FeatureButton {
   text: string;
   enabled: boolean;
   reason?: string;
-  needsTarget: "ally" | "enemy" | "none" | "hex";
+  needsTarget: "ally" | "enemy" | "none" | "hex" | "area";
   kind: "action" | "bonus";
+  /** area feature centred on the caster — no hex to pick, just confirm */
+  selfCentered?: boolean;
 }
 
 export type EncPhase = "deploy" | "player" | "enemy" | "won" | "lost";
@@ -175,6 +178,78 @@ export class Encounter {
     return true;
   }
 
+  private pushAway(from: Unit, target: Unit): void {
+    const dir = { q: Math.sign(target.pos.q - from.pos.q), r: Math.sign(target.pos.r - from.pos.r) };
+    if (!dir.q && !dir.r) return;
+    const dest = { q: target.pos.q + dir.q, r: target.pos.r + dir.r };
+    const t = this.grid.get(dest);
+    if (!t || this.unitAt(dest) || t.terrain === "wall") return;
+    if (t.terrain === "chasm") {
+      this.say(`${target.name} is blasted into the chasm!`);
+      this.applyDamage(target, target.maxHp * 2, "blasted into a chasm", from);
+      return;
+    }
+    target.pos = { ...dest };
+    if (t.hazard) this.startOfTurnEffects(target);
+  }
+
+  /** area attacks: sweep / thunderwave (self-centred) · volley / burning_hands (targeted) */
+  areaFeature(id: string, center: Hex): boolean {
+    const u = this.active;
+    if (!u || this.phase !== "player" || u.actionUsed) return false;
+    const inArea = (h: Hex) => distance(h, center) <= 1;
+
+    switch (id) {
+      case "sweep": {
+        if (!this.enemiesOf(u).some((e) => distance(e.pos, u.pos) === 1)) return false;
+        u.actionUsed = true;
+        this.say(`${u.name} sweeps a wide arc.`);
+        for (const e of this.enemiesOf(u).filter((x) => distance(x.pos, u.pos) === 1)) {
+          this.resolveAttack(u, e, {});
+          if (this.checkEnd()) return true;
+        }
+        break;
+      }
+      case "thunderwave": {
+        if (!this.enemiesOf(u).some((e) => distance(e.pos, u.pos) === 1)) return false;
+        u.actionUsed = true;
+        this.say(`${u.name} slams out a wave of force.`);
+        for (const e of this.enemiesOf(u).filter((x) => distance(x.pos, u.pos) === 1)) {
+          this.applyDamage(e, this.rng.roll("2d8"), `slain by ${u.name}`, u);
+          if (e.alive) this.pushAway(u, e);
+          if (this.checkEnd()) return true;
+        }
+        break;
+      }
+      case "volley": {
+        if (distance(u.pos, center) > u.weapon.range || !this.grid.hasLineOfSight(u.pos, center)) return false;
+        u.actionUsed = true;
+        this.say(`${u.name} looses a volley.`);
+        for (const e of this.enemiesOf(u).filter((x) => inArea(x.pos))) {
+          this.resolveAttack(u, e, { note: "volley" });
+          if (this.checkEnd()) return true;
+        }
+        break;
+      }
+      case "burning_hands": {
+        if (distance(u.pos, center) > 3) return false;
+        u.actionUsed = true;
+        this.say(`${u.name} unleashes a gout of flame.`);
+        for (const t of this.units.filter((x) => x.alive && inArea(x.pos))) {
+          this.applyDamage(t, this.rng.roll("2d6"), `burned by ${u.name}`, u);
+          if (t.alive && this.rng.chance(0.4)) this.addCondition(t, { kind: "burning", duration: 2 });
+          if (this.checkEnd()) return true;
+        }
+        break;
+      }
+      default:
+        return false;
+    }
+    if (this.checkEnd()) return true;
+    this.afterPlayerAction(u);
+    return true;
+  }
+
   addCondition(u: Unit, c: Condition): void {
     const existing = u.conditions.find((x) => x.kind === c.kind);
     if (existing) existing.duration = Math.max(existing.duration, c.duration);
@@ -313,6 +388,15 @@ export class Encounter {
       if (c.duration > 0) {
         c.duration--;
         if (c.duration === 0) this.removeCondition(u, c.kind);
+      }
+    }
+    // Spirit Guardians: an enemy starting its turn next to a warder eats radiant
+    if (u.alive && !u.downed) {
+      const warder = this.enemiesOf(u).find(
+        (w) => w.featureIds.includes("spirit_guardians") && distance(w.pos, u.pos) === 1,
+      );
+      if (warder) {
+        this.applyDamage(u, this.rng.roll("1d8"), `seared by ${warder.name}'s guardians`, warder);
       }
     }
   }
@@ -671,7 +755,9 @@ export class Encounter {
   }
 
   private rollDeathSave(u: Unit): void {
-    const roll = this.rng.int(1, 20);
+    const roll = RUN_CONFIG.deathSaveEdge
+      ? Math.max(this.rng.int(1, 20), this.rng.int(1, 20))
+      : this.rng.int(1, 20);
     if (roll === 20) {
       u.downed = false;
       u.hp = Math.max(1, Math.floor(u.maxHp * 0.1));
@@ -836,7 +922,31 @@ export class Encounter {
     if (f.includes("arcane_shield"))
       out.push({ id: "arcane_shield", name: "Shield", text: FEATURES.arcane_shield.text,
         enabled: !u.bonusUsed && !this.hasCondition(u, "dodging"), needsTarget: "none", kind: "bonus" });
+
+    // ---- area attacks ----
+    const adjEnemy = this.enemiesOf(u).some((e) => distance(e.pos, u.pos) === 1);
+    if (f.includes("cleave"))
+      out.push({ id: "cleave", name: "Cleave", text: FEATURES.cleave.text,
+        enabled: !u.actionUsed && inRangeEnemy, needsTarget: "enemy", kind: "action" });
+    if (f.includes("sweep"))
+      out.push({ id: "sweep", name: "Sweep", text: FEATURES.sweep.text,
+        enabled: !u.actionUsed && adjEnemy, needsTarget: "area", selfCentered: true, kind: "action" });
+    if (f.includes("thunderwave"))
+      out.push({ id: "thunderwave", name: "Thunderwave", text: FEATURES.thunderwave.text,
+        enabled: !u.actionUsed && adjEnemy, needsTarget: "area", selfCentered: true, kind: "action" });
+    if (f.includes("volley"))
+      out.push({ id: "volley", name: "Volley", text: FEATURES.volley.text,
+        enabled: !u.actionUsed && this.losEnemies(u, u.weapon.range).length > 0, needsTarget: "area", kind: "action" });
+    if (f.includes("burning_hands"))
+      out.push({ id: "burning_hands", name: "Burning Hands", text: FEATURES.burning_hands.text,
+        enabled: !u.actionUsed && this.enemiesOf(u).length > 0, needsTarget: "area", kind: "action" });
     return out;
+  }
+
+  /** hexes an area feature would hit, centred on `center` (for the board preview) */
+  areaHexes(id: string, center: Hex): Hex[] {
+    void id;
+    return [center, ...neighbors(center)].filter((h) => this.grid.has(h));
   }
 
   /** enemies with LOS within range (for spell targeting) */
@@ -1047,8 +1157,25 @@ export class Encounter {
         if (target.alive) this.addCondition(target, { kind: "burning", duration: 2 });
         break;
       }
+      case "cleave": {
+        if (!target || u.actionUsed) return false;
+        u.actionUsed = true;
+        this.resolveAttack(u, target, { note: "cleave" });
+        const other = this.enemiesOf(u).find((e) => e.id !== target.id && distance(e.pos, u.pos) === 1);
+        if (other) {
+          const dmg = Math.max(1, this.rng.roll(u.weapon.dice) + u.damageBonus);
+          this.say(`${u.name}'s swing carries into ${other.name} for ${dmg}.`);
+          this.applyDamage(other, dmg, `slain by ${u.name}`, u);
+        }
+        if (this.checkEnd()) return true;
+        break;
+      }
       case "misty_step":
-        return false; // handled via teleport() from the hex click
+      case "sweep":
+      case "thunderwave":
+      case "volley":
+      case "burning_hands":
+        return false; // handled via teleport()/areaFeature() from the board
       default:
         return false;
     }
