@@ -530,7 +530,7 @@ describe("disbandment", () => {
       version: 4 as const, name: "Test Club", sigil: "⛓", gold: 500, renown: 0, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 3, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league: initLeague("Test Club"), roster: [], disbandments: 0,
+      league: initLeague("Test Club"), roster: [], disbandments: 0, bestLeagueLevel: 7,
     };
     expect(checkDisbandment(base)).toBeTruthy(); // empty roster
     expect(checkDisbandment({ ...base, roster: [{} as never] })).toBeNull(); // someone's still fielded
@@ -545,7 +545,7 @@ describe("disbandment", () => {
       version: 4 as const, name: "Broke Club", sigil: "⛓", gold: 0, renown: 0, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 1, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league, roster: [{} as never], disbandments: 0,
+      league, roster: [{} as never], disbandments: 0, bestLeagueLevel: 7,
     };
     expect(checkDisbandment(base)).toBeTruthy();
     expect(checkDisbandment({ ...base, gold: 40 })).toBeNull(); // not broke — safe despite the losing streak
@@ -562,7 +562,7 @@ describe("disbandment", () => {
       runs: [{ seed: "s", depth: 4, outcome: "wipe" as const, banked: 0, fee: 0, wages: 0, net: 0, party: [], when: 0 }],
       graveyard: [{ name: "Bael", epitaph: "e", depth: 4, cause: "c" }],
       bestDepth: 4, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league, roster: [], disbandments: 0,
+      league, roster: [], disbandments: 0, bestLeagueLevel: 7,
     };
     disbandAndRebuild(g, "New Name");
     expect(g.name).toBe("New Name");
@@ -584,10 +584,81 @@ describe("disbandment", () => {
       version: 4 as const, name: "Debt Club", sigil: "⛓", gold: -50, renown: 0, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 2, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league, roster: [{} as never], disbandments: 0,
+      league, roster: [{} as never], disbandments: 0, bestLeagueLevel: 7,
     };
     expect(checkDisbandment(base)).toBeNull(); // -50 is a manageable dip
     expect(checkDisbandment({ ...base, gold: -300 })).toBeTruthy(); // -300 is severe debt regardless of form
+  });
+});
+
+describe("season dungeon", () => {
+  it("dungeonSpecForLevel gets longer and harder the higher up the pyramid you are", async () => {
+    const { dungeonSpecForLevel, MAX_LEVEL } = await import("../game/league");
+    const bottom = dungeonSpecForLevel(MAX_LEVEL);
+    const top = dungeonSpecForLevel(1);
+    expect(top.floors).toBeGreaterThan(bottom.floors);
+    expect(top.depthStart).toBeGreaterThan(bottom.depthStart);
+  });
+
+  it("applyGuildToConfig sets the season dungeon's length/difficulty from the club's current division", async () => {
+    const { applyGuildToConfig } = await import("../game/guild");
+    const { RUN_CONFIG } = await import("../game/config");
+    const { initLeague, dungeonSpecForLevel, playerClub, DIVISIONS } = await import("../game/league");
+    const league = initLeague("Spec Test");
+    playerClub(league).divisionId = DIVISIONS.find((d) => d.level === 1)!.id;
+    const g = {
+      version: 4 as const, name: "Spec Test", sigil: "⛓", gold: 0, renown: 0, materials: 0,
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
+      runs: [], graveyard: [], bestDepth: 0, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
+      league, roster: [], disbandments: 0, bestLeagueLevel: 7,
+    };
+    applyGuildToConfig(g);
+    const spec = dungeonSpecForLevel(1);
+    expect(RUN_CONFIG.dungeonFloors).toBe(spec.floors);
+    expect(RUN_CONFIG.dungeonDepthStart).toBe(spec.depthStart);
+  });
+
+  it("a run auto-ends as a full clear exactly at the season's floor budget, and the final floor is never an extraction shaft", async () => {
+    const { resetConfig, RUN_CONFIG } = await import("../game/config");
+    let cleared = false;
+    const seeds = Array.from({ length: 15 }, (_, i) => `s-dungeon-${i}`);
+    for (const seed of seeds) {
+      resetConfig();
+      RUN_CONFIG.dungeonFloors = 2; // short dungeon — isolates the auto-end mechanic from raw survivability
+      const run = new Run(seed);
+      while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
+      run.beginDescent();
+
+      let floorsPlayed = 0;
+      let sawFullClear = false;
+      let lastKind: string | null = null;
+      let guard = 0;
+      while (!run.state.over && guard++ < 30) {
+        const cand = run.state.nextFloors[0];
+        lastKind = cand.kind;
+        const enc = run.enterFloor(cand);
+        if (enc === null) {
+          run.bankGold();
+          floorsPlayed++;
+          continue;
+        }
+        autoPlayEncounter(enc);
+        const rep = run.resolveEncounter();
+        floorsPlayed++;
+        if (rep.fullClear) sawFullClear = true;
+        for (const c of run.state.party) {
+          let g2 = 0;
+          while (c.pendingLevelUps > 0 && g2++ < 20) applyLevelUp(c, c.classId as never);
+        }
+      }
+      if (run.state.outcome === "retired" && sawFullClear) {
+        expect(floorsPlayed).toBe(RUN_CONFIG.dungeonFloors);
+        expect(lastKind).not.toBe("extraction"); // the season's climactic floor is always a real fight
+        cleared = true;
+        break;
+      }
+    }
+    expect(cleared).toBe(true); // at least one of these seeds should full-clear a 6-floor dungeon
   });
 });
 

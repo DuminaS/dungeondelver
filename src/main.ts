@@ -30,7 +30,7 @@ import {
   upgradeBlocked,
   upgradeCost,
 } from "./game/guild";
-import { ClubStanding, MAX_LEVEL, PROMOTE_SLOTS, RELEGATE_SLOTS, SEASON_LENGTH, divisionOf, divisionsAtLevel, playerRank, recordFixture, standings } from "./game/league";
+import { ClubStanding, MAX_LEVEL, PROMOTE_SLOTS, RELEGATE_SLOTS, SEASON_LENGTH, SeasonRecap, divisionOf, divisionsAtLevel, playerRank, recordFixture, standings } from "./game/league";
 import { MarketRecruit, rollAcademyProspect, rollMarket } from "./game/recruitment";
 import { Run, EncounterReport } from "./game/descent";
 import { Encounter } from "./game/encounter";
@@ -43,7 +43,7 @@ import { RNG } from "./core/rng";
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
 
-type Phase = "found" | "settlement" | "standings" | "market" | "disband" | "descent" | "encounter" | "aftermath" | "debrief";
+type Phase = "found" | "settlement" | "standings" | "market" | "disband" | "recap" | "descent" | "encounter" | "aftermath" | "debrief";
 
 const app = document.getElementById("app")!;
 let guild: Guild = loadGuild();
@@ -68,6 +68,7 @@ let fixtureResult: {
 } | null = null;
 let standingsReturnPhase: Phase = "settlement";
 let pendingDisbandReason: string | null = null;
+let seasonRecap: SeasonRecap | null = null;
 let marketRng = 0;
 let marketPool: MarketRecruit[] = [];
 let academyRng = 0;
@@ -331,6 +332,7 @@ function render(): void {
     standings: renderStandings,
     market: renderMarket,
     disband: renderDisband,
+    recap: renderRecap,
     descent: renderDescent,
     encounter: renderEncounter,
     aftermath: renderAftermath,
@@ -745,6 +747,66 @@ function renderDisband(): void {
   });
 }
 
+// ---------------------------------------------------------------- season recap
+
+function renderRecap(): void {
+  const recap = seasonRecap;
+  if (!recap) {
+    phase = "settlement";
+    render();
+    return;
+  }
+  const medal = (i: number) => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "");
+  app.innerHTML = `
+  <div class="wrap col">
+    <div class="spread">
+      <div><div class="eyebrow">Season ${recap.season} Recap</div><h1>${esc(recap.divisionName)}</h1></div>
+      ${
+        recap.promoted
+          ? `<span class="pill" style="color:var(--good);border-color:var(--good)">${icon("star")} Promoted</span>`
+          : recap.relegated
+            ? `<span class="pill" style="color:var(--bad);border-color:var(--bad)">${icon("skull")} Relegated</span>`
+            : `<span class="pill">${icon("round")} Held position</span>`
+      }
+    </div>
+    <p class="sub">${SEASON_LENGTH} fixtures played across the division. You finished <b>#${recap.playerRank}</b> of ${recap.table.length}.</p>
+
+    <div class="standings-wrap">
+      <table class="standings">
+        <thead><tr>
+          <th>#</th><th>Club</th><th>Clears</th><th>Gold</th><th>Net</th><th>Pts</th><th>Form</th>
+        </tr></thead>
+        <tbody>
+          ${recap.table
+            .map((c, i) => {
+              const rankTone = i === 0 ? "rank-gold" : i <= 1 ? "rank-good" : i >= recap.table.length - 2 ? "rank-bad" : "";
+              return `
+              <tr class="${c.isPlayer ? "standings__row--me" : ""}">
+                <td class="mono ${rankTone}">${medal(i)} ${i + 1}</td>
+                <td class="standings__club">${c.isPlayer ? `<span class="pill" style="color:var(--gold);border-color:var(--gold)">YOU</span> ` : ""}${esc(c.name)}</td>
+                <td class="mono">${c.clears}</td>
+                <td class="mono">${c.goldEarned}g</td>
+                <td class="mono" style="color:var(--good)">${c.netGold}g</td>
+                <td class="mono">${c.points}</td>
+                <td class="formrow">${formPips(c)}</td>
+              </tr>`;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="row"><button class="primary" id="recap-continue">${icon("chevron")} Continue</button></div>
+  </div>`;
+
+  document.getElementById("recap-continue")!.addEventListener("click", () => {
+    seasonRecap = null;
+    fixtureResult = null;
+    phase = pendingDisbandReason ? "disband" : "settlement";
+    render();
+  });
+}
+
 // ---------------------------------------------------------------- descent
 
 function renderDescent(): void {
@@ -757,13 +819,16 @@ function renderDescent(): void {
     extraction: icon("extract"),
     boss: icon("boss"),
   };
+  const floorNum = Math.max(0, st.depth - run.depthStart + 1);
+  const onFinalFloor = st.depth + 1 >= run.depthStart + run.maxFloors - 1;
 
   app.innerHTML = `
   <div class="wrap col">
     <div class="spread">
-      <div><div class="eyebrow">${esc(st.guildName)}</div><h1>Deep ${st.depth} — the way down</h1></div>
+      <div><div class="eyebrow">${esc(st.guildName)} — floor ${Math.min(floorNum + 1, run.maxFloors)} of ${run.maxFloors}</div><h1>Deep ${st.depth} — the way down</h1></div>
       <span class="sub">seed <span class="kbd">${esc(st.seed)}</span></span>
     </div>
+    ${onFinalFloor ? `<p class="sub">${icon("boss")} Last floor of the season's dungeon — a real fight, no extraction shaft. Clear it and the fixture ends in an automatic win.</p>` : ""}
     <div class="panel statrow">
       ${stat("loot", `${st.gold}g`, "gold", "carrying")}
       ${stat("check", `${st.bankedGold}g`, "", "banked — safe")}
@@ -839,7 +904,7 @@ function wireExtractionButtons(): void {
   });
   document.getElementById("ex-retire")?.addEventListener("click", () => {
     const { bonus } = run!.retire();
-    report = { won: true, deaths: [], levelUps: [], loot: bonus, xpEach: 0, bossKilled: false };
+    report = { won: true, deaths: [], levelUps: [], loot: bonus, xpEach: 0, bossKilled: false, fullClear: false };
     finishRun();
   });
 }
@@ -1411,13 +1476,14 @@ function finishRun(): void {
   guild.roster = st.party.map((c) => ({ ...c, hp: c.maxHp }));
   const wages = guild.roster.reduce((s, c) => s + c.salary, 0);
   const fixtureDiv = divisionOf(guild.league); // the division the fee was actually charged in
-  const { fee, net, seasonEnded, promoted, relegated, newDivisionId } = recordFixture(guild.league, {
+  const { fee, net, seasonEnded, promoted, relegated, newDivisionId, recap } = recordFixture(guild.league, {
     cleared,
     floorsCleared: st.depth,
     goldEarned: st.bankedGold,
     squadHealth: guild.roster.length,
     reputation: guild.renown,
   });
+  seasonRecap = recap;
   const netAfterWages = net - wages;
   fixtureResult = {
     cleared,
@@ -1460,7 +1526,13 @@ function renderDebrief(): void {
         ${stat("check", `+${st.bankedGold}g`, "gold", "gross earned")}
         ${!retired ? stat("loot", `${st.gold}g`, "bad", "lost with the bodies") : ""}
       </div>
-      <p class="sub">${retired ? `Everyone got out.${report ? ` Retirement bonus +${report.loot}g.` : ""}` : `Only what was banked at a shaft made it up.`}</p>
+      <p class="sub">${
+        report?.fullClear
+          ? `${icon("boss")} Full clear — every floor of the season's dungeon, down to the last fight.${report ? ` Bonus +${report.loot}g.` : ""}`
+          : retired
+            ? `Everyone got out.${report ? ` Retirement bonus +${report.loot}g.` : ""}`
+            : `Only what was banked at a shaft made it up.`
+      }</p>
       ${st.graveyard.length ? `<h3>Fallen this run</h3><div class="col" style="gap:6px">${st.graveyard.map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}</div>` : ""}
     </div>
 
@@ -1478,25 +1550,32 @@ function renderDebrief(): void {
     </div>` : ""}
 
     ${
-      fx?.promoted
-        ? `<div class="panel col" style="border-color:var(--good)"><p class="log__line t-good">${icon("star")}<span>Season ${guild.league.season - 1} done — <b>promoted</b> to ${esc(div.name)}. The fee's steeper up here.</span></p></div>`
-        : fx?.relegated
-          ? `<div class="panel col" style="border-color:var(--bad)"><p class="log__line t-bad">${icon("skull")}<span>Season ${guild.league.season - 1} done — <b>relegated</b> to ${esc(div.name)}.</span></p></div>`
-          : fx?.seasonEnded
-            ? `<div class="panel col"><p class="sub">${icon("round")} Season ${guild.league.season - 1} done — the table's reset, you're holding your spot in ${esc(div.name)}.</p></div>`
-            : ""
+      fx?.seasonEnded && seasonRecap
+        ? `<div class="panel col" style="border-color:${fx.promoted ? "var(--good)" : fx.relegated ? "var(--bad)" : "var(--iron-2)"}">
+             <p class="log__line ${fx.promoted ? "t-good" : fx.relegated ? "t-bad" : ""}">${icon(fx.promoted ? "star" : fx.relegated ? "skull" : "round")}<span>Season ${seasonRecap.season} is done${fx.promoted ? " — promoted!" : fx.relegated ? " — relegated." : "."} See how the whole division finished.</span></p>
+           </div>`
+        : ""
     }
 
     <div class="row">
-      <button class="primary" id="home">${icon("extract")} Back to the Pit</button>
+      <button class="primary" id="home">${icon("extract")} ${fx?.seasonEnded ? "See the season recap" : "Back to the Pit"}</button>
       <button id="debrief-standings">${icon("star")} League table</button>
     </div>
   </div>`;
   document.getElementById("home")!.addEventListener("click", () => {
+    if (fixtureResult?.seasonEnded && seasonRecap) {
+      run = null;
+      enc = null;
+      report = null;
+      phase = "recap";
+      render();
+      return;
+    }
     run = null;
     enc = null;
     report = null;
     fixtureResult = null;
+    seasonRecap = null;
     phase = pendingDisbandReason ? "disband" : "settlement";
     render();
   });
@@ -1555,6 +1634,70 @@ function maybeDevJump(): boolean {
     guild.roster = [];
     pendingDisbandReason = "The roster was wiped out — there's no one left to field.";
     phase = "disband";
+    return true;
+  }
+  if (d === "descentview") {
+    guild.name = guild.name ?? "Dev Pit";
+    applyGuildToConfig(guild);
+    if (p.get("floors")) RUN_CONFIG.dungeonFloors = parseInt(p.get("floors")!, 10);
+    const rng0 = new RNG("dev-descentview-roster");
+    guild.roster = ["fighter", "cleric", "rogue"].map((cid) => makeCharacter(rng0, { classId: cid as ClassId }));
+    run = new Run(p.get("seed") || "descentview-seed", guild.name, guild.roster);
+    const jumpTo = parseInt(p.get("floor") || "1", 10);
+    run.beginDescent();
+    for (let i = 1; i < jumpTo && run.state.nextFloors.length; i++) {
+      const cand = run.state.nextFloors[0];
+      const e = run.enterFloor(cand);
+      if (e) {
+        e.autoDeploy();
+        let guard4 = 0;
+        while (e.phase === "enemy" && guard4++ < 30) e.runEnemyTurn();
+        while ((e.phase === "player" || e.phase === "enemy") && guard4++ < 200) {
+          if (e.phase === "enemy") {
+            e.runEnemyTurn();
+            continue;
+          }
+          const u = e.active;
+          if (!u) {
+            e.endTurn();
+            continue;
+          }
+          const t = e.attackTargets(u).sort((a, b) => a.hp - b.hp)[0];
+          if (t && !u.actionUsed) {
+            e.doAttack(t.id);
+            continue;
+          }
+          e.endTurn();
+        }
+        run.resolveEncounter();
+      } else {
+        run.bankGold();
+      }
+    }
+    phase = "descent";
+    return true;
+  }
+  if (d === "recap") {
+    guild.name = guild.name ?? "Dev Pit";
+    const playerR = guild.league.clubs.find((c) => c.isPlayer);
+    if (playerR) playerR.name = guild.name;
+    let last;
+    for (let i = 0; i < SEASON_LENGTH; i++) {
+      last = recordFixture(guild.league, {
+        cleared: i % 2 === 0,
+        floorsCleared: 6,
+        goldEarned: 200 + i * 40,
+        squadHealth: 3,
+        reputation: guild.renown,
+      });
+    }
+    seasonRecap = last!.recap;
+    fixtureResult = {
+      cleared: true, gross: 0, fee: 0, wages: 0, net: 0,
+      seasonEnded: true, promoted: last!.promoted, relegated: last!.relegated,
+      newDivisionId: last!.newDivisionId, divisionName: "", feePct: 0,
+    };
+    phase = "recap";
     return true;
   }
   if (d === "standings") {
@@ -1618,7 +1761,7 @@ function maybeDevJump(): boolean {
         applyLevelUp(c, branch ?? c.classId);
       }
     });
-    report = { won: true, deaths: [], levelUps: [], loot: 40, xpEach: 0, bossKilled: false };
+    report = { won: true, deaths: [], levelUps: [], loot: 40, xpEach: 0, bossKilled: false, fullClear: false };
     phase = "aftermath";
     if (p.get("open")) openSheet(run.state.party[0].id);
     return true;

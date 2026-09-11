@@ -3,7 +3,7 @@
  * Founded once, upgraded between runs, kept in localStorage.
  */
 import { RUN_CONFIG, resetConfig } from "./config";
-import { initLeague, LeagueState, playerClub, resetPlayerClub } from "./league";
+import { divisionOf, dungeonSpecForLevel, initLeague, LeagueState, MAX_LEVEL, playerClub, resetPlayerClub } from "./league";
 import { Character } from "./types";
 
 export type BuildingId =
@@ -52,6 +52,8 @@ export interface Guild {
   /** signed, persistent roster — carries between runs until they die or are released */
   roster: Character[];
   disbandments: number;
+  /** best (lowest-numbered) league level ever reached — never improves on relegation, gates the priciest buildings */
+  bestLeagueLevel: number;
 }
 
 export interface Building {
@@ -73,6 +75,28 @@ const FLOOR_BY_TIER = [3, 5, 7, 8];
 
 const BANK_BY_TIER = [200, 400, 800, 1600, 100000];
 
+/**
+ * Every building level past the first is gated on club tenure as well as
+ * gold — how many seasons you've competed, and the best (lowest-numbered)
+ * league level you've ever reached — so the top tiers of infrastructure are
+ * a multi-season, multi-promotion investment, not just a bank balance.
+ */
+const PROGRESS_REQ: Record<number, { season: number; level: number }> = {
+  2: { season: 2, level: MAX_LEVEL },
+  3: { season: 4, level: 6 },
+  4: { season: 6, level: 4 },
+  5: { season: 9, level: 3 },
+  6: { season: 12, level: 1 },
+};
+
+function progressGate(nextLevel: number, g: Guild): string | null {
+  const req = PROGRESS_REQ[nextLevel];
+  if (!req) return null;
+  if (g.league.season < req.season) return `Reach Season ${req.season}`;
+  if (g.bestLeagueLevel > req.level) return `Reach Level ${req.level} first`;
+  return null;
+}
+
 /** effect(l) = the effect with l levels built (l = 0 → base state) */
 export const BUILDINGS: Building[] = [
   {
@@ -81,8 +105,9 @@ export const BUILDINGS: Building[] = [
     glyph: "‡",
     blurb: "Scouting reach. How many prospects the Market turns up per visit.",
     max: 5,
-    cost: (l) => [150, 350, 750, 1500, 2800][l] ?? 0,
+    cost: (l) => [500, 1200, 2600, 5200, 9800][l] ?? 0,
     effect: (l) => `Market shows ${3 + l} prospects`,
+    gate: (g) => progressGate(buildingLevel(g, "recruitment") + 1, g),
   },
   {
     id: "barracks",
@@ -90,11 +115,11 @@ export const BUILDINGS: Building[] = [
     glyph: "▚",
     blurb: "Bunks. Each one lets a bigger warband go down.",
     max: 3,
-    cost: (l) => [700, 2200, 5500][l] ?? 0,
+    cost: (l) => [2500, 7700, 19000][l] ?? 0,
     effect: (l) => `Party size X ${3 + l}`,
     gate: (g) => {
       const need = [6, 11, 16][g.buildings.barracks] ?? 99;
-      return g.bestDepth >= need ? null : `Reach Deep ${need} first`;
+      return progressGate(buildingLevel(g, "barracks") + 1, g) ?? (g.bestDepth >= need ? null : `Reach Deep ${need} first`);
     },
   },
   {
@@ -103,8 +128,9 @@ export const BUILDINGS: Building[] = [
     glyph: "✕",
     blurb: "Drill posts. Raises the ceiling on how far a delver can level.",
     max: 6,
-    cost: (l) => [250, 550, 1100, 2200, 4200, 7500][l] ?? 0,
+    cost: (l) => [900, 2000, 3900, 7700, 14700, 26000][l] ?? 0,
     effect: (l) => `Level cap W ${W_BY_TIER[Math.min(l, 6)]}`,
+    gate: (g) => progressGate(buildingLevel(g, "training") + 1, g),
   },
   {
     id: "pedigree",
@@ -112,8 +138,9 @@ export const BUILDINGS: Building[] = [
     glyph: "❦",
     blurb: "Better stock through the gate. Raises the worst a rolled stat can be.",
     max: 3,
-    cost: (l) => [300, 800, 1800][l] ?? 0,
+    cost: (l) => [1050, 2800, 6300][l] ?? 0,
     effect: (l) => `Min stat ${FLOOR_BY_TIER[Math.min(l, 3)]}` + (l >= 3 ? " · +1 key stat" : ""),
+    gate: (g) => progressGate(buildingLevel(g, "pedigree") + 1, g),
   },
   {
     id: "smithy",
@@ -121,8 +148,9 @@ export const BUILDINGS: Building[] = [
     glyph: "⚒",
     blurb: "Issue kit at the gate. Newly drafted delvers carry Guild arms.",
     max: 3,
-    cost: (l) => [400, 1200, 3000][l] ?? 0,
+    cost: (l) => [1400, 4200, 10500][l] ?? 0,
     effect: (l) => ["No issue", "+1 AC", "+1 AC · keen weapon", "+1 AC · keen · +2 HP/lvl"][Math.min(l, 3)],
+    gate: (g) => progressGate(buildingLevel(g, "smithy") + 1, g),
   },
   {
     id: "vault",
@@ -130,8 +158,9 @@ export const BUILDINGS: Building[] = [
     glyph: "◈",
     blurb: "Strongroom. Caps how much a single extraction can send to the surface.",
     max: 4,
-    cost: (l) => [200, 550, 1300, 3000][l] ?? 0,
+    cost: (l) => [700, 1900, 4500, 10500][l] ?? 0,
     effect: (l) => `Bank ${BANK_BY_TIER[Math.min(l, 4)] >= 100000 ? "any amount" : BANK_BY_TIER[Math.min(l, 4)] + "g"} / shaft`,
+    gate: (g) => progressGate(buildingLevel(g, "vault") + 1, g),
   },
   {
     id: "infirmary",
@@ -139,8 +168,9 @@ export const BUILDINGS: Building[] = [
     glyph: "✚",
     blurb: "Cots and poultices. Survivors mend faster; the downed hang on longer.",
     max: 2,
-    cost: (l) => [500, 1500][l] ?? 0,
+    cost: (l) => [1750, 5250][l] ?? 0,
     effect: (l) => ["No infirmary", "Death saves at advantage", "Death saves at advantage · 40% post-floor heal"][Math.min(l, 2)],
+    gate: (g) => progressGate(buildingLevel(g, "infirmary") + 1, g),
   },
   {
     id: "academy",
@@ -148,8 +178,9 @@ export const BUILDINGS: Building[] = [
     glyph: "❋",
     blurb: "The club's own training pipeline. Cheap graduates, never dries up, always a rung below the Market's best.",
     max: 3,
-    cost: (l) => [250, 700, 1600][l] ?? 0,
+    cost: (l) => [900, 2450, 5600][l] ?? 0,
     effect: (l) => `Graduate stat floor ${l >= 3 ? "close to" : "well below"} a normal recruit's` + (l === 0 ? " (unbuilt — still usable, worst quality)" : ""),
+    gate: (g) => progressGate(buildingLevel(g, "academy") + 1, g),
   },
 ];
 
@@ -177,6 +208,7 @@ function blankGuild(): Guild {
     league: initLeague("Unnamed Club"),
     roster: [],
     disbandments: 0,
+    bestLeagueLevel: MAX_LEVEL,
   };
 }
 
@@ -273,6 +305,11 @@ export function applyGuildToConfig(g: Guild): void {
   RUN_CONFIG.startPatched = true;
   RUN_CONFIG.deathSaveEdge = b.infirmary >= 1;
   RUN_CONFIG.postFloorHeal = b.infirmary >= 2 ? 0.4 : 0.25;
+  // this season's dungeon: every club at your league level plays the same
+  // fixed-length, level-scaled descent
+  const spec = dungeonSpecForLevel(divisionOf(g.league).level);
+  RUN_CONFIG.dungeonFloors = spec.floors;
+  RUN_CONFIG.dungeonDepthStart = spec.depthStart;
 }
 
 export function recordRun(
@@ -296,6 +333,7 @@ export function recordRun(
   g.bestDepth = Math.max(g.bestDepth, run.depth);
   g.bestBanked = Math.max(g.bestBanked, run.banked);
   g.totalBanked += Math.max(0, run.banked);
+  g.bestLeagueLevel = Math.min(g.bestLeagueLevel, divisionOf(g.league).level);
   // wages can push this negative — a club can go into debt, same as any club that can't make payroll
   g.gold += run.net;
   if (run.outcome === "retired") {

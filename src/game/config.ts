@@ -15,6 +15,10 @@ export interface RunConfig {
   startPatched: boolean; // recruits start at full HP (Infirmary)
   deathSaveEdge: boolean; // roll death saves at advantage (Infirmary 1)
   postFloorHeal: number; // fraction of max HP recovered after a floor
+  /** how many floors this season's fixed-length dungeon runs — set from the league division's level */
+  dungeonFloors: number;
+  /** the effective "Deep" the season dungeon's floor 1 starts at — higher-level divisions start harder */
+  dungeonDepthStart: number;
 }
 
 export const RUN_CONFIG: RunConfig = {
@@ -29,6 +33,8 @@ export const RUN_CONFIG: RunConfig = {
   startPatched: true,
   deathSaveEdge: false,
   postFloorHeal: 0.25,
+  dungeonFloors: 6,
+  dungeonDepthStart: 1,
 };
 
 export function resetConfig(): void {
@@ -44,5 +50,7 @@ export function resetConfig(): void {
     startPatched: true,
   deathSaveEdge: false,
   postFloorHeal: 0.25,
+  dungeonFloors: 6,
+  dungeonDepthStart: 1,
   });
 }

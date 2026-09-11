@@ -22,6 +22,9 @@ export class Run {
   readonly draftPool = RUN_CONFIG.draftPool;
   readonly partySize = RUN_CONFIG.partySize;
   mulligansLeft = RUN_CONFIG.mulligans;
+  /** this season's fixed dungeon length and starting difficulty — set from the league division's level */
+  readonly maxFloors = RUN_CONFIG.dungeonFloors;
+  readonly depthStart = RUN_CONFIG.dungeonDepthStart;
 
   /** `roster` is the club's persistent, already-signed characters — they skip the draft entirely */
   constructor(seed?: string, guildName = "The Gordion Pit", roster: Character[] = []) {
@@ -95,13 +98,25 @@ export class Run {
   // ---------------------------------------------------------------- descent
 
   beginDescent(): void {
-    this.state.depth = 0;
+    this.state.depth = this.depthStart - 1;
     this.revealNextFloors();
+  }
+
+  /** the last floor of this season's dungeon — clearing it ends the fixture automatically */
+  get finalDepth(): number {
+    return this.depthStart + this.maxFloors - 1;
   }
 
   private revealNextFloors(): void {
     const depth = this.state.depth + 1;
     const rng = this.rng.fork(`floors:${depth}`);
+
+    // the season's climactic floor: always a real fight, never a way to duck out early
+    if (depth >= this.finalDepth) {
+      const kind: FloorKind = depth % 5 === 0 ? "boss" : "elite";
+      this.state.nextFloors = [this.makeCandidate(rng.fork("final"), depth, kind)];
+      return;
+    }
 
     // a boss gates every 5th Deep — no alternative, no skipping it
     if (depth % 5 === 0) {
@@ -188,7 +203,7 @@ export class Run {
   /** apply the outcome of the last encounter to the run */
   resolveEncounter(): EncounterReport {
     const enc = this.lastEncounter;
-    const report: EncounterReport = { won: false, deaths: [], levelUps: [], loot: 0, xpEach: 0, bossKilled: false };
+    const report: EncounterReport = { won: false, deaths: [], levelUps: [], loot: 0, xpEach: 0, bossKilled: false, fullClear: false };
     if (!enc) return report;
     report.won = enc.phase === "won";
     report.bossKilled = report.won && this.currentFloor?.kind === "boss";
@@ -260,7 +275,13 @@ export class Run {
     report.loot = loot;
 
     // reset per-floor character flags handled at unit creation next floor
-    this.revealNextFloors();
+    if (this.state.depth >= this.finalDepth) {
+      // the season's dungeon is fully cleared — an automatic, successful extraction
+      this.retire();
+      report.fullClear = true;
+    } else {
+      this.revealNextFloors();
+    }
     return report;
   }
 
@@ -296,4 +317,6 @@ export interface EncounterReport {
   loot: number;
   xpEach: number;
   bossKilled: boolean;
+  /** true when this was the season dungeon's final floor, cleared — an automatic full-clear extraction */
+  fullClear: boolean;
 }

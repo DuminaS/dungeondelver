@@ -58,6 +58,29 @@ export function divisionById(id: string): Division {
   return DIVISIONS.find((d) => d.id === id) ?? DIVISIONS[DIVISIONS.length - 1];
 }
 
+export interface DungeonSpec {
+  /** how many floors this season's fixed-length dungeon runs */
+  floors: number;
+  /** the effective "Deep" floor 1 starts at — everything (arena size, monster budget, boss gates) scales off this */
+  depthStart: number;
+}
+
+// every club at a level plays the same dungeon that season: longer and
+// harder the higher up the pyramid you are
+const DUNGEON_BY_LEVEL: Record<number, DungeonSpec> = {
+  7: { floors: 6, depthStart: 1 },
+  6: { floors: 7, depthStart: 2 },
+  5: { floors: 8, depthStart: 3 },
+  4: { floors: 9, depthStart: 4 },
+  3: { floors: 10, depthStart: 6 },
+  2: { floors: 11, depthStart: 8 },
+  1: { floors: 13, depthStart: 10 },
+};
+
+export function dungeonSpecForLevel(level: number): DungeonSpec {
+  return DUNGEON_BY_LEVEL[level] ?? DUNGEON_BY_LEVEL[MAX_LEVEL];
+}
+
 /** every group (division) that makes up one level of the pyramid, e.g. the two Level 6 regionals */
 export function divisionsAtLevel(level: number): Division[] {
   return DIVISIONS.filter((d) => d.level === level);
@@ -233,11 +256,25 @@ export function playerRank(league: LeagueState): number {
   return standings(league, div.id).findIndex((c) => c.isPlayer) + 1;
 }
 
-function settleSeason(rng: RNG, league: LeagueState): { promoted: boolean; relegated: boolean; newDivisionId: string } {
+export interface SeasonRecap {
+  season: number;
+  divisionName: string;
+  /** the division's final table, frozen the instant before season-end stats reset */
+  table: ClubStanding[];
+  playerRank: number;
+  promoted: boolean;
+  relegated: boolean;
+}
+
+function settleSeason(
+  rng: RNG,
+  league: LeagueState,
+): { promoted: boolean; relegated: boolean; newDivisionId: string; recap: SeasonRecap } {
   const player = playerClub(league);
+  const div = divisionById(player.divisionId);
   const table = standings(league, player.divisionId);
   const rank = table.findIndex((c) => c.isPlayer) + 1;
-  const level = divisionById(player.divisionId).level;
+  const level = div.level;
 
   let promoted = false;
   let relegated = false;
@@ -248,6 +285,15 @@ function settleSeason(rng: RNG, league: LeagueState): { promoted: boolean; releg
     player.divisionId = pickDivisionAtLevel(rng, level + 1).id;
     relegated = true;
   }
+
+  const recap: SeasonRecap = {
+    season: league.season,
+    divisionName: div.name,
+    table: table.map((c) => ({ ...c, form: [...c.form] })),
+    playerRank: rank,
+    promoted,
+    relegated,
+  };
 
   league.season += 1;
   for (const c of league.clubs) {
@@ -261,7 +307,7 @@ function settleSeason(rng: RNG, league: LeagueState): { promoted: boolean; releg
     c.points = 0;
     c.form = [];
   }
-  return { promoted, relegated, newDivisionId: player.divisionId };
+  return { promoted, relegated, newDivisionId: player.divisionId, recap };
 }
 
 /**
@@ -273,7 +319,15 @@ function settleSeason(rng: RNG, league: LeagueState): { promoted: boolean; releg
 export function recordFixture(
   league: LeagueState,
   result: { cleared: boolean; floorsCleared: number; goldEarned: number; squadHealth: number; reputation: number },
-): { fee: number; net: number; seasonEnded: boolean; promoted: boolean; relegated: boolean; newDivisionId: string } {
+): {
+  fee: number;
+  net: number;
+  seasonEnded: boolean;
+  promoted: boolean;
+  relegated: boolean;
+  newDivisionId: string;
+  recap: SeasonRecap | null;
+} {
   const player = playerClub(league);
   const div = divisionById(player.divisionId);
   league.round += 1;
@@ -298,10 +352,10 @@ export function recordFixture(
 
   const seasonEnded = league.round % SEASON_LENGTH === 0;
   if (seasonEnded) {
-    const { promoted, relegated, newDivisionId } = settleSeason(rng.fork("season"), league);
-    return { fee, net, seasonEnded, promoted, relegated, newDivisionId };
+    const { promoted, relegated, newDivisionId, recap } = settleSeason(rng.fork("season"), league);
+    return { fee, net, seasonEnded, promoted, relegated, newDivisionId, recap };
   }
-  return { fee, net, seasonEnded, promoted: false, relegated: false, newDivisionId: player.divisionId };
+  return { fee, net, seasonEnded, promoted: false, relegated: false, newDivisionId: player.divisionId, recap: null };
 }
 
 /**
