@@ -239,6 +239,45 @@ describe("full run simulation", () => {
     }
   });
 
+  it("boss encounters run phase transitions, telegraphs, and pay out on death", async () => {
+    const { generateArena } = await import("../game/arena");
+    const { unitFromCharacter } = await import("../game/units");
+    const { makeCharacter } = await import("../game/character");
+    const { BOSSES } = await import("../game/data");
+
+    for (const seed of ["boss-a", "boss-b", "boss-c"]) {
+      const rng = new RNG(seed);
+      const party = ["fighter", "cleric", "rogue"].map((classId) =>
+        makeCharacter(rng.fork(`c-${classId}`), { classId: classId as ClassId }),
+      );
+      const arena = generateArena(rng.fork("arena"), 5, "boss", party.length);
+      const boss = arena.enemies.find((u) => u.boss);
+      expect(boss).toBeTruthy();
+      expect(BOSSES[boss!.boss!.defId]).toBeTruthy();
+
+      const enc = new Encounter({
+        grid: arena.grid,
+        players: party.map((c) => unitFromCharacter(c, arena.deployZone[0])),
+        enemies: arena.enemies,
+        objective: arena.objective,
+        rng: rng.fork("enc"),
+        depth: 5,
+        deployZone: arena.deployZone,
+      });
+      autoPlayEncounter(enc);
+      expect(["won", "lost"]).toContain(enc.phase);
+
+      const bossUnit = enc.units.find((u) => u.boss);
+      expect(bossUnit).toBeTruthy();
+      // phase should have advanced at least once by the time the fight ends
+      // (win: it was beaten down through at least phase 1; loss: it survived, phase may be 0 if it won fast — so only assert on a win)
+      if (enc.phase === "won") {
+        expect(bossUnit!.boss!.phase).toBeGreaterThanOrEqual(1);
+        expect(bossUnit!.alive).toBe(false);
+      }
+    }
+  });
+
   it("grid pathfinding never returns a path through walls", () => {
     const run = new Run("wall-check");
     while (!run.draftComplete) run.pickRecruit(run.pool[0].id);

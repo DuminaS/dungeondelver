@@ -55,6 +55,8 @@ export class BoardView {
   armedMove: Hex | null = null;
   armedTargetId: string | null = null;
   armedArea: Hex[] = [];
+  /** a boss's telegraphed big move — where it's about to land */
+  bossTelegraph: Hex[] = [];
 
   cb: BoardCallbacks = {};
 
@@ -305,6 +307,24 @@ export class BoardView {
       c.strokeStyle = "rgba(220,138,58,0.9)";
       c.lineWidth = 1.5;
       c.stroke();
+    }
+
+    // boss telegraph — unmistakable: solid danger fill + thick dashed border + a warning glyph
+    for (const h of this.bossTelegraph) {
+      const { x, y } = hexToPixel(h, L);
+      this.hexPath(x, y, s * 0.97);
+      c.fillStyle = "rgba(176,65,59,0.34)";
+      c.fill();
+      c.strokeStyle = "rgba(220,60,50,0.95)";
+      c.lineWidth = 2.5;
+      c.setLineDash([5, 4]);
+      c.stroke();
+      c.setLineDash([]);
+      c.fillStyle = "rgba(255,220,210,0.9)";
+      c.font = `${Math.round(s * 0.8)}px ui-monospace, monospace`;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText("!", x, y - s * 0.05);
     }
 
     // hover

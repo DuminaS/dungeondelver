@@ -1,4 +1,4 @@
-import { AbilityKey, Character, RaceDef, ClassDef, TraitDef, MonsterDef, RaceId, ClassId, WeaponDef } from "./types";
+import { AbilityKey, BossDef, Character, RaceDef, ClassDef, TraitDef, MonsterDef, RaceId, ClassId, WeaponDef } from "./types";
 
 // ---------------------------------------------------------------- races
 
@@ -552,6 +552,97 @@ export const MONSTERS: Record<string, MonsterDef> = {
     tier: 2,
   },
 };
+
+// ---------------------------------------------------------------- bosses
+
+export const BOSSES: Record<string, BossDef> = {
+  warden: {
+    id: "warden",
+    name: "The Warden",
+    depth: 5,
+    hp: 120,
+    ac: 17,
+    toHit: 7,
+    weapon: { name: "the Warden's Maul", dice: "2d6", ranged: false, range: 1, ability: "STR" },
+    damageBonus: 4,
+    speed: 5,
+    initiative: 1,
+    tags: ["humanoid", "boss"],
+    blurb: "A shield-wall of a thing that used to be a jailer. It doesn't chase — it makes the room chase you.",
+    moves: [
+      {
+        id: "shockwave",
+        name: "Shockwave Slam",
+        telegraphText: "plants its maul and the floor begins to crack",
+        cooldown: 3,
+        radius: 2,
+        centerOn: "self",
+        damage: "2d10",
+        push: true,
+      },
+      {
+        id: "judgment",
+        name: "Ledger's Judgment",
+        telegraphText: "levels its maul at one of you",
+        cooldown: 4,
+        radius: 1,
+        centerOn: "target",
+        damage: "3d8",
+      },
+    ],
+    phases: [
+      { hpPct: 0.66, text: "The Warden roots itself — chains erupt from the floor and drag scavengers up to defend it.", addAdds: ["scavenger", "scavenger"] },
+      { hpPct: 0.33, text: "The floor gives way. Black, corrosive water floods the room.", hazard: "acid" },
+    ],
+  },
+  chainbroken_king: {
+    id: "chainbroken_king",
+    name: "The Chain-Broken King",
+    depth: 10,
+    hp: 170,
+    ac: 18,
+    toHit: 8,
+    weapon: { name: "a rusted greatblade", dice: "2d8", ranged: false, range: 1, ability: "STR" },
+    damageBonus: 5,
+    speed: 6,
+    initiative: 3,
+    tags: ["undead", "boss", "champion"],
+    blurb: "Crowned himself a king of the Deep. The chains that hold him up are the only thing keeping him down.",
+    moves: [
+      {
+        id: "sweep",
+        name: "Tyrant's Sweep",
+        telegraphText: "draws the greatblade back in a wide arc",
+        cooldown: 3,
+        radius: 1,
+        centerOn: "self",
+        damage: "3d8",
+      },
+      {
+        id: "chainrain",
+        name: "Rain of Chains",
+        telegraphText: "raises a fistful of broken chain overhead",
+        cooldown: 4,
+        radius: 2,
+        centerOn: "target",
+        damage: "2d10",
+        push: true,
+      },
+    ],
+    phases: [
+      { hpPct: 0.6, text: "The King roars — the chained dead claw up out of the Deep to answer him.", addAdds: ["bone_archer", "rime_hound"] },
+      { hpPct: 0.25, text: "His crown cracks. Whatever is left of him is done pretending to be patient.", statBuff: { toHit: 2, damageBonus: 2 } },
+    ],
+  },
+};
+
+/** the boss tuned closest to (at or below) this depth */
+export function bossForDepth(depth: number): BossDef {
+  const eligible = Object.values(BOSSES)
+    .filter((b) => b.depth <= depth)
+    .sort((a, b) => b.depth - a.depth);
+  return eligible[0] ?? BOSSES.warden;
+}
 
 // ---------------------------------------------------------------- names
 

@@ -64,7 +64,7 @@ Goal: the full run→spend→run cycle.
 
 ## Phase 4 — Depth & feel
 
-- [ ] Tiers 3–5 monsters; hand-authored bosses at Deep 5/10/15/20; procedural boss assembler.
+- [~] Tiers 3–5 monsters; hand-authored bosses at Deep 5/10/15/20; procedural boss assembler. (Deep 5 "The Warden" + Deep 10 "The Chainbroken King" shipped — multi-phase, telegraphed AOE moves, adds, hazard fields; Deep 15/20 bosses + a procedural assembler for endless-mode depths: not yet)
 - [ ] Full class tables to L20; design-for classes (Paladin, Monk, Sorcerer, Warlock, Bard, Druid).
 - [ ] Environmental verbs polish: shove-to-chasm, collapse ceilings, ignite slicks, bait traps.
 - [ ] Threat-range heat overlay, undo-move, epitaph generator, last-stand slow-mo, post-mortem screen.

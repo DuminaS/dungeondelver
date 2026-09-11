@@ -1,5 +1,5 @@
 import { Hex } from "../core/hex";
-import { Character, MonsterDef, Unit, mod } from "./types";
+import { BossDef, Character, MonsterDef, Unit, mod } from "./types";
 import { damageBonus, toHit } from "./character";
 
 let uid = 0;
@@ -75,6 +75,44 @@ export function unitFromMonster(m: MonsterDef, pos: Hex, hpScale = 1): Unit {
     featUses: {},
     markTargetId: null,
     intent: null,
+  };
+}
+
+export function unitFromBoss(b: BossDef, pos: Hex): Unit {
+  return {
+    id: `u${uid++}`,
+    team: "enemy",
+    name: b.name,
+    pos,
+    maxHp: b.hp,
+    hp: b.hp,
+    ac: b.ac,
+    speed: b.speed,
+    toHit: b.toHit,
+    weapon: { ...b.weapon },
+    damageBonus: b.damageBonus,
+    initiative: 0,
+    archetype: "elite",
+    tags: [...b.tags, `bossdef:${b.id}`],
+    conditions: [],
+    movedThisTurn: 0,
+    actionUsed: false,
+    bonusUsed: false,
+    reactionUsed: false,
+    dashed: false,
+    alive: true,
+    downed: false,
+    deathSuccess: 0,
+    deathFail: 0,
+    kills: 0,
+    featureIds: [],
+    secondWindUsed: false,
+    surgeUsed: false,
+    cureUses: 0,
+    featUses: {},
+    markTargetId: null,
+    intent: null,
+    boss: { defId: b.id, phase: 0, lastMoveRound: 0, telegraph: null },
   };
 }
 

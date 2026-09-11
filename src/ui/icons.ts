@@ -13,7 +13,7 @@ type IconName =
   | "poison" | "burn" | "prone" | "dodge" | "bless" | "bleed"
   | "loot" | "extract" | "hazard" | "threat"
   | "melee" | "ranged" | "support" | "star"
-  | "dash" | "disengage" | "shove" | "check" | "x" | "chevron";
+  | "dash" | "disengage" | "shove" | "check" | "x" | "chevron" | "boss";
 
 const P: Record<IconName, string> = {
   hp: '<path d="M12 20S4 14 4 9a4 4 0 0 1 8-1 4 4 0 0 1 8 1c0 5-8 11-8 11Z"/>',
@@ -46,6 +46,7 @@ const P: Record<IconName, string> = {
   check: '<path d="M4 12l5 6L20 5"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   chevron: '<path d="M6 9l6 6 6-6"/>',
+  boss: '<path d="M4 9l3 2 5-6 5 6 3-2-2 10H6L4 9Z"/><path d="M8 19h8"/>',
 };
 
 export function icon(name: IconName, cls = ""): string {

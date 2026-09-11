@@ -182,6 +182,8 @@ input[type="text"]:focus-visible { outline: 2px solid var(--gold); outline-offse
 }
 .pill--threat { color: var(--enemy); border-color: var(--enemy); display: inline-flex; gap: 1px; align-items: center; }
 .pill--threat .ic { width: 11px; height: 11px; }
+.pill--boss { color: var(--bad); border-color: var(--bad); display: inline-flex; gap: 4px; align-items: center; background: rgba(176,65,59,0.12); }
+.pill--boss .ic { width: 12px; height: 12px; }
 
 /* ============================================================ recruit / party cards */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
@@ -196,6 +198,9 @@ input[type="text"]:focus-visible { outline: 2px solid var(--gold); outline-offse
 }
 .ucard--pick { cursor: pointer; }
 .ucard--pick:hover { background: var(--stone-2); border-color: var(--card-accent, var(--gold)); }
+.ucard--boss { border-left-color: var(--bad); background: linear-gradient(135deg, rgba(176,65,59,0.1), var(--stone)); }
+.ucard--boss:hover { border-color: var(--bad); }
+.ucard--boss .ucard__name { color: var(--bad); }
 .ucard__head { display: flex; justify-content: space-between; align-items: center; gap: 9px; }
 .ucard__name { font-family: var(--font-display); font-weight: 700; font-size: 15px; color: var(--ink); line-height: 1.15; }
 .ucard__kind { font-size: 11.5px; color: var(--ink-dim); display: flex; align-items: center; gap: 5px; }
@@ -205,6 +210,25 @@ input[type="text"]:focus-visible { outline: 2px solid var(--gold); outline-offse
 .enc-top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .enc-obj { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-dim); }
 .enc-obj .ic { color: var(--gold); }
+
+.boss-banner {
+  border: 1px solid var(--bad);
+  border-radius: var(--r);
+  background: linear-gradient(180deg, rgba(176,65,59,0.14), rgba(176,65,59,0.04));
+  padding: 9px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  margin: -2px 0 2px;
+}
+.boss-banner__row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.boss-banner__name { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); font-weight: 700; font-size: 15px; color: var(--bad); }
+.boss-banner__name .ic { width: 16px; height: 16px; }
+.boss-banner__phase { font: 600 10.5px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); }
+.boss-banner__hp { margin-left: auto; font: 600 12px/1 var(--font-mono); color: var(--ink); }
+.boss-banner__bar { height: 8px; border-radius: 4px; background: var(--iron); overflow: hidden; border: 1px solid var(--iron-2); }
+.boss-banner__fill { height: 100%; background: linear-gradient(90deg, #7d2b26, var(--bad)); transition: width 0.4s ease; }
+.boss-banner__flavor { font-size: 12px; font-style: italic; color: var(--ink-dim); }
+.boss-banner__telegraph { display: flex; align-items: center; gap: 5px; font: 600 11.5px/1.3 var(--font-mono); color: var(--warn); }
+.boss-banner__telegraph .ic { width: 13px; height: 13px; flex: none; }
 
 .enc-layout { display: grid; grid-template-columns: 1fr 316px; gap: 14px; align-items: start; }
 @media (max-width: 920px) { .enc-layout { grid-template-columns: 1fr; } }

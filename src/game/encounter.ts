@@ -1,8 +1,9 @@
 import { RNG } from "../core/rng";
-import { Hex, distance, eq, key, neighbors } from "../core/hex";
+import { Hex, distance, eq, key, neighbors, ring, withinRange } from "../core/hex";
 import { HexGrid, HazardKind } from "../core/grid";
 import { Condition, ConditionKind, Objective, Unit } from "./types";
-import { FEATURES } from "./data";
+import { BOSSES, FEATURES, MONSTERS } from "./data";
+import { unitFromMonster } from "./units";
 import { RUN_CONFIG } from "./config";
 
 export interface AttackPreview {
@@ -681,6 +682,7 @@ export class Encounter {
     if (target.featureIds.includes("stoneblood") && cause.includes("acid")) amount = Math.max(1, amount - 1);
     if (this.hasCondition(target, "raging") && cause.startsWith("slain by")) amount = Math.max(1, Math.ceil(amount / 2));
     target.hp -= amount;
+    if (target.boss && target.hp > 0) this.checkBossPhase(target);
 
     // half-orc Relentless
     if (target.hp <= 0 && target.featureIds.includes("relentless") && !target.relentlessUsed) {
@@ -720,6 +722,52 @@ export class Encounter {
 
   private objectiveNoDowned(): boolean {
     return false; // hook for Abyssal covenant
+  }
+
+  /** phases are authored in descending hpPct order — see data.ts BOSSES */
+  private checkBossPhase(u: Unit): void {
+    const bd = BOSSES[u.boss!.defId];
+    if (!bd) return;
+    const frac = u.hp / u.maxHp;
+    for (let i = u.boss!.phase; i < bd.phases.length; i++) {
+      const ph = bd.phases[i];
+      if (frac > ph.hpPct) break;
+      u.boss!.phase = i + 1;
+      this.say(`${u.name}: ${ph.text}`);
+      if (ph.statBuff) {
+        u.toHit += ph.statBuff.toHit ?? 0;
+        u.damageBonus += ph.statBuff.damageBonus ?? 0;
+      }
+      if (ph.hazard) {
+        for (const h of neighbors(u.pos)) {
+          const t = this.grid.get(h);
+          if (t && t.terrain !== "wall" && t.terrain !== "chasm" && !t.feature) t.hazard = { kind: ph.hazard, ttl: -1 };
+        }
+      }
+      if (ph.addAdds?.length) {
+        for (const mid of ph.addAdds) {
+          const def = MONSTERS[mid];
+          const spot = def ? this.findSpawnSpot(u.pos) : null;
+          if (def && spot) {
+            const add = unitFromMonster(def, spot, 1);
+            this.units.push(add);
+            this.turnOrder.push(add.id);
+          }
+        }
+        this.say(`Reinforcements claw up out of the dark.`);
+      }
+    }
+  }
+
+  private findSpawnSpot(near: Hex): Hex | null {
+    for (let r = 1; r <= 3; r++) {
+      for (const h of ring(near, r)) {
+        const t = this.grid.get(h);
+        if (!t || t.terrain === "wall" || t.terrain === "chasm" || this.unitAt(h)) continue;
+        return h;
+      }
+    }
+    return null;
   }
 
   private onUnitDeath(u: Unit): void {
@@ -1329,11 +1377,63 @@ export class Encounter {
     return best;
   }
 
-  /** run the whole active enemy's turn; returns true if still enemy phase after */
+  /** run the whole active enemy's turn */
   runEnemyTurn(): void {
     const e = this.active;
     if (!e || this.phase !== "enemy") return;
+    if (e.boss) {
+      this.runBossTurn(e);
+      return;
+    }
+    this.runBasicEnemyTurn(e);
+  }
 
+  private runBossTurn(e: Unit): void {
+    const bd = BOSSES[e.boss!.defId];
+    if (!bd) {
+      this.runBasicEnemyTurn(e);
+      return;
+    }
+
+    // a telegraphed move from last turn lands now
+    const tg = e.boss!.telegraph;
+    if (tg) {
+      const move = bd.moves.find((m) => m.id === tg.moveId);
+      e.boss!.telegraph = null;
+      e.actionUsed = true;
+      if (move) {
+        this.say(`${e.name} unleashes ${move.name}!`);
+        for (const h of tg.hexes) {
+          const victim = this.unitAt(h);
+          if (victim && victim.team === "player") {
+            const dmg = this.rng.roll(move.damage);
+            this.applyDamage(victim, dmg, `slain by ${e.name}`, e);
+            if (move.push && victim.alive) this.pushAway(e, victim);
+            if (this.checkEnd()) return;
+          }
+        }
+      }
+      if (this.checkEnd()) return;
+      this.endTurn();
+      return;
+    }
+
+    // otherwise: maybe start telegraphing a new move, then act normally this turn
+    const due = this.round - e.boss!.lastMoveRound >= (bd.moves[0]?.cooldown ?? 3);
+    if (due && bd.moves.length) {
+      const targets = this.pickTargetsFor(e);
+      const move = this.rng.pick(bd.moves);
+      const center = move.centerOn === "self" || !targets.length ? e.pos : targets[0].pos;
+      const hexes = withinRange(center, move.radius).filter((h) => this.grid.has(h));
+      e.boss!.telegraph = { moveId: move.id, hexes, name: move.name };
+      e.boss!.lastMoveRound = this.round;
+      this.say(`${e.name} ${move.telegraphText}.`);
+    }
+
+    this.runBasicEnemyTurn(e);
+  }
+
+  private runBasicEnemyTurn(e: Unit): void {
     const targets = this.pickTargetsFor(e);
     if (!targets.length) {
       this.say(`${e.name} finds no one to fight.`);

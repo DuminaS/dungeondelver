@@ -4,7 +4,7 @@ import { epitaphFor, grantXp, makeCharacter, xpValue } from "./character";
 import { generateArena } from "./arena";
 import { Encounter } from "./encounter";
 import { unitFromCharacter } from "./units";
-import { MONSTERS } from "./data";
+import { bossForDepth, MONSTERS } from "./data";
 import { RUN_CONFIG } from "./config";
 
 // legacy defaults (used only as fallbacks in UI text before a run exists)
@@ -101,12 +101,20 @@ export class Run {
   private revealNextFloors(): void {
     const depth = this.state.depth + 1;
     const rng = this.rng.fork(`floors:${depth}`);
+
+    // a boss gates every 5th Deep — no alternative, no skipping it
+    if (depth % 5 === 0) {
+      this.state.nextFloors = [this.makeCandidate(rng.fork("boss"), depth, "boss")];
+      return;
+    }
+
     const count = 2 + (rng.chance(0.35) ? 1 : 0);
     const cands: FloorCandidate[] = [];
     const kinds: FloorKind[] = [];
 
-    // guaranteed extraction option every 3rd floor (and never on floor 1)
-    if (depth > 1 && depth % 3 === 0) kinds.push("extraction");
+    // a boss just fell: the way up is always on the table next
+    const justClearedBoss = this.currentFloor?.kind === "boss" && this.currentFloor.depth === depth - 1;
+    if (justClearedBoss || (depth > 1 && depth % 3 === 0)) kinds.push("extraction");
     // elite chance grows with depth
     if (rng.chance(Math.min(0.5, 0.15 + depth * 0.04))) kinds.push("elite");
     while (kinds.length < count) kinds.push("combat");
@@ -125,6 +133,10 @@ export class Run {
     const modPool = ["Darkness", "Unstable ground", "Elite pack", "Rich veins", "Thin air", "Rime"];
     const mods = rng.chance(0.5) ? [rng.pick(modPool)] : [];
     const avgLvl = this.avgPartyLevel();
+    if (kind === "boss") {
+      const bd = bossForDepth(depth);
+      return { kind, depth, biome, threat: 5, modifiers: [], seedTag: rng.seed, label: bd.name, blurb: bd.blurb };
+    }
     const threat = Math.max(1, Math.min(5, Math.round(1 + depth * 0.4 - avgLvl * 0.3 + (kind === "elite" ? 1.5 : 0))));
     const label =
       kind === "extraction"
@@ -175,9 +187,10 @@ export class Run {
   /** apply the outcome of the last encounter to the run */
   resolveEncounter(): EncounterReport {
     const enc = this.lastEncounter;
-    const report: EncounterReport = { won: false, deaths: [], levelUps: [], loot: 0, xpEach: 0 };
+    const report: EncounterReport = { won: false, deaths: [], levelUps: [], loot: 0, xpEach: 0, bossKilled: false };
     if (!enc) return report;
     report.won = enc.phase === "won";
+    report.bossKilled = report.won && this.currentFloor?.kind === "boss";
 
     // map units back to characters
     const byChar = new Map<string, (typeof enc.units)[number]>();
@@ -223,6 +236,7 @@ export class Run {
     const survivors = this.state.party;
     const slainEnemies = enc.units.filter((u) => u.team === "enemy" && !u.alive);
     const totalKillXp = slainEnemies.reduce((s, u) => {
+      if (u.tags.some((t) => t.startsWith("bossdef:"))) return s + 400 + this.state.depth * 30;
       const defId = u.tags.find((t) => t.startsWith("def:"))?.slice(4);
       const def = defId ? MONSTERS[defId] : null;
       return s + (def ? xpValue(def.tier, def.hp) : 25);
@@ -239,7 +253,8 @@ export class Run {
     }
 
     // loot
-    const loot = Math.round((15 + this.state.depth * 8) * (this.currentFloor?.kind === "elite" ? 1.8 : 1) * this.rng.fork(`loot:${this.state.depth}`).range(0.7, 1.4));
+    const lootMult = this.currentFloor?.kind === "boss" ? 3 : this.currentFloor?.kind === "elite" ? 1.8 : 1;
+    const loot = Math.round((15 + this.state.depth * 8) * lootMult * this.rng.fork(`loot:${this.state.depth}`).range(0.7, 1.4));
     this.state.gold += loot;
     report.loot = loot;
 
@@ -279,4 +294,5 @@ export interface EncounterReport {
   levelUps: { name: string; count: number }[];
   loot: number;
   xpEach: number;
+  bossKilled: boolean;
 }

@@ -1,7 +1,7 @@
 import "./style.css";
 import { Hex, eq, key } from "./core/hex";
 import { AbilityKey, ABILITIES, Character, ClassId, CLASS_IDS, Unit } from "./game/types";
-import { admissionFor, CLASSES, FEATURES, RACES, TRAITS } from "./game/data";
+import { admissionFor, BOSSES, CLASSES, FEATURES, RACES, TRAITS } from "./game/data";
 import {
   applyLevelUp,
   classHeaderLabel,
@@ -22,6 +22,7 @@ import {
   foundGuild,
   loadGuild,
   recordRun,
+  saveGuild,
   SIGILS,
   upgradeBlocked,
   upgradeCost,
@@ -475,7 +476,12 @@ function renderDescent(): void {
   if (!run) return;
   const st = run.state;
   const extractionHere = st.depth > 0 && run.currentFloor?.kind === "extraction";
-  const kindIcon: Record<string, string> = { combat: icon("atk"), elite: icon("star"), extraction: icon("extract") };
+  const kindIcon: Record<string, string> = {
+    combat: icon("atk"),
+    elite: icon("star"),
+    extraction: icon("extract"),
+    boss: icon("boss"),
+  };
 
   app.innerHTML = `
   <div class="wrap col">
@@ -496,11 +502,15 @@ function renderDescent(): void {
       ${st.nextFloors
         .map(
           (c, i) => `
-        <div class="ucard ucard--pick" data-idx="${i}">
+        <div class="ucard ucard--pick${c.kind === "boss" ? " ucard--boss" : ""}" data-idx="${i}">
           <div class="ucard__head">
             <div><div class="ucard__name">${esc(c.label)}</div>
               <div class="ucard__kind">${kindIcon[c.kind] ?? ""} ${esc(c.biome)}</div></div>
-            <span class="pill pill--threat" title="threat">${icon("skull").repeat(c.threat)}</span>
+            ${
+              c.kind === "boss"
+                ? `<span class="pill pill--boss" title="boss">${icon("boss")} BOSS</span>`
+                : `<span class="pill pill--threat" title="threat">${icon("skull").repeat(c.threat)}</span>`
+            }
           </div>
           ${c.modifiers.length ? `<div class="taglist">${c.modifiers.map((m) => `<span class="tag">${esc(m)}</span>`).join("")}</div>` : ""}
           <div class="sub">${esc(c.blurb)}</div>
@@ -554,7 +564,7 @@ function wireExtractionButtons(): void {
   });
   document.getElementById("ex-retire")?.addEventListener("click", () => {
     const { bonus } = run!.retire();
-    report = { won: true, deaths: [], levelUps: [], loot: bonus, xpEach: 0 };
+    report = { won: true, deaths: [], levelUps: [], loot: bonus, xpEach: 0, bossKilled: false };
     finishRun();
   });
 }
@@ -569,6 +579,7 @@ function renderEncounter(): void {
       <h1>Deep ${enc.depth}</h1>
       <span class="enc-obj">${icon(enc.objective.kind === "extract" ? "extract" : "atk")} ${esc(enc.objective.description)}</span>
     </div>
+    <div id="boss-banner"></div>
     <div class="enc-layout">
       <div>
         <div id="board-holder"><canvas id="board"></canvas></div>
@@ -579,6 +590,7 @@ function renderEncounter(): void {
           <span><span class="sw" style="background:#9a9384"></span> spikes</span>
           <span><span class="sw" style="background:#d5713a"></span> fire</span>
           <span><span class="sw" style="background:#9276b6"></span> gas</span>
+          <span><span class="sw" style="background:rgba(220,60,50,.5);border:1px dashed rgba(220,60,50,.95)"></span> boss telegraph — will land here</span>
           <span>▲ high ground</span>
         </div>
       </div>
@@ -705,6 +717,9 @@ function refreshEncounter(): void {
   board.armedTargetId = null;
   board.armedArea = [];
   board.targetables = new Set();
+  board.bossTelegraph = enc.units
+    .filter((u) => u.alive && u.boss?.telegraph)
+    .flatMap((u) => u.boss!.telegraph!.hexes);
 
   if (enc.phase === "player" && enc.active) {
     const u = enc.active;
@@ -740,12 +755,20 @@ function refreshEncounter(): void {
   board.draw();
   renderHud();
   renderLog();
+  const bannerEl = document.getElementById("boss-banner");
+  if (bannerEl) bannerEl.innerHTML = bossBanner();
 
   if (enc.phase === "won" || enc.phase === "lost") {
     teardownEncounter();
     const won = enc.phase === "won";
     setTimeout(() => {
       report = run!.resolveEncounter();
+      if (report.bossKilled) {
+        const gained = 25 + run!.state.depth;
+        guild.renown += gained;
+        saveGuild(guild);
+        flashToast(`★ Boss down — +${gained} Renown`);
+      }
       if (won && !run!.state.over) {
         phase = "aftermath";
         render();
@@ -849,6 +872,29 @@ function FEATNAME(id: string): string {
   if (id === "__shove") return "Shove";
   if (id === "__teleport") return "Misty Step";
   return FEATURES[id]?.name ?? id[0].toUpperCase() + id.slice(1).replace(/_/g, " ");
+}
+
+function bossBanner(): string {
+  if (!enc) return "";
+  const boss = enc.units.find((u) => u.boss && u.alive);
+  if (!boss || !boss.boss) return "";
+  const bd = BOSSES[boss.boss.defId];
+  if (!bd) return "";
+  const pct = Math.max(0, Math.round((boss.hp / boss.maxHp) * 100));
+  const phase = boss.boss.phase;
+  const phaseText = bd.phases[phase - 1]?.text ?? "";
+  const tg = boss.boss.telegraph;
+  return `
+  <div class="boss-banner">
+    <div class="boss-banner__row">
+      <span class="boss-banner__name">${icon("boss")} ${esc(bd.name)}</span>
+      <span class="boss-banner__phase">Phase ${phase + 1}${phase >= bd.phases.length ? " — last stand" : ""}</span>
+      <span class="boss-banner__hp">${boss.hp}/${boss.maxHp} HP</span>
+    </div>
+    <div class="boss-banner__bar"><div class="boss-banner__fill" style="width:${pct}%"></div></div>
+    ${phaseText ? `<div class="boss-banner__flavor">${esc(phaseText)}</div>` : ""}
+    ${tg ? `<div class="boss-banner__telegraph">${icon("threat")} winding up ${esc(tg.name)} — get clear of the marked tiles</div>` : ""}
+  </div>`;
 }
 
 function activePanel(u: Unit): string {
@@ -1161,9 +1207,59 @@ function maybeDevJump(): boolean {
         applyLevelUp(c, branch ?? c.classId);
       }
     });
-    report = { won: true, deaths: [], levelUps: [], loot: 40, xpEach: 0 };
+    report = { won: true, deaths: [], levelUps: [], loot: 40, xpEach: 0, bossKilled: false };
     phase = "aftermath";
     if (p.get("open")) openSheet(run.state.party[0].id);
+    return true;
+  }
+  if (d === "boss") {
+    applyGuildToConfig(guild);
+    run = new Run(p.get("seed") || "boss-dev");
+    while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
+    run.beginDescent();
+    const bossCand = { ...run.state.nextFloors[0], kind: "boss" as const, depth: 5, label: "Dev Boss Floor" };
+    const e = run.enterFloor(bossCand);
+    if (e) {
+      e.autoDeploy();
+      const rounds = parseInt(p.get("rounds") || "0", 10);
+      for (let g = 0; g < rounds * 40 && (e.phase === "player" || e.phase === "enemy"); g++) {
+        if (e.phase === "enemy") {
+          e.runEnemyTurn();
+          continue;
+        }
+        const u = e.active;
+        if (!u) {
+          e.endTurn();
+          continue;
+        }
+        const t = e.attackTargets(u).sort((a, b) => a.hp - b.hp)[0];
+        if (t && !u.actionUsed) {
+          e.doAttack(t.id);
+          continue;
+        }
+        const foes = e.units.filter((x) => x.team === "enemy" && x.alive);
+        let moved = false;
+        if (foes.length && e.moveBudget(u) > 0) {
+          let best: string | null = null,
+            bd = Infinity;
+          for (const k of e.moveOptions(u).keys()) {
+            const [q, r] = k.split(",").map(Number);
+            const dd = Math.min(...foes.map((f) => Math.abs(f.pos.q - q) + Math.abs(f.pos.r - r)));
+            if (dd < bd) {
+              bd = dd;
+              best = k;
+            }
+          }
+          if (best) {
+            const [q, r] = best.split(",").map(Number);
+            moved = e.moveTo({ q, r });
+          }
+        }
+        if (!moved) e.endTurn();
+      }
+      enc = e;
+      phase = "encounter";
+    }
     return true;
   }
   if (d !== "enc") return false;

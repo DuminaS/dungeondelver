@@ -1,8 +1,8 @@
 import { RNG } from "../core/rng";
 import { Hex, distance, key } from "../core/hex";
 import { HexGrid, Terrain } from "../core/grid";
-import { unitFromMonster } from "./units";
-import { MONSTERS } from "./data";
+import { unitFromBoss, unitFromMonster } from "./units";
+import { bossForDepth, MONSTERS } from "./data";
 import { FloorKind, MonsterDef, Objective, Unit } from "./types";
 
 export interface Arena {
@@ -22,8 +22,8 @@ export function generateArena(
   partySize: number,
 ): Arena {
   const biome = rng.pick(BIOMES);
-  const w = 9 + Math.min(4, Math.floor(depth / 3)) + Math.max(0, partySize - 3);
-  const h = 8 + Math.min(3, Math.floor(depth / 4)) + Math.max(0, partySize - 3);
+  const w = 9 + Math.min(4, Math.floor(depth / 3)) + Math.max(0, partySize - 3) + (kind === "boss" ? 3 : 0);
+  const h = 8 + Math.min(3, Math.floor(depth / 4)) + Math.max(0, partySize - 3) + (kind === "boss" ? 2 : 0);
   const grid = new HexGrid(w, h);
   const cells = grid.all();
 
@@ -87,49 +87,58 @@ export function generateArena(
   }
 
   // ---- objective + enemies
-  const budget = enemyBudget(depth, kind);
-  const roster = pickRoster(rng, depth, kind, budget);
   const farCells = cells
     .filter((t) => !t.feature && t.terrain !== "wall" && t.terrain !== "chasm")
     .sort((a, b) => b.q - a.q);
   const enemies: Unit[] = [];
   const used = new Set<string>();
-  for (const def of roster) {
-    let placed: Hex | null = null;
-    const wantsHigh = def.archetype === "archer";
-    const pool = [...farCells].sort((a, b) =>
-      wantsHigh ? b.elevation - a.elevation || b.q - a.q : b.q - a.q,
-    );
-    for (const t of pool) {
-      const hh = { q: t.q, r: t.r };
-      if (used.has(key(hh))) continue;
-      if (deployZone.some((d) => distance(d, hh) <= 2)) continue;
-      placed = hh;
-      break;
-    }
-    if (!placed) placed = { q: farCells[0].q, r: farCells[0].r };
-    used.add(key(placed));
-    enemies.push(unitFromMonster(def, placed, depthHpScale(depth)));
-  }
 
   let objective: Objective;
-  if (kind === "extraction") {
-    const exHexes = cells
-      .filter((t) => t.terrain !== "wall" && t.terrain !== "chasm")
-      .sort((a, b) => b.q - a.q)
-      .slice(0, 3)
-      .map((t) => ({ q: t.q, r: t.r }));
-    for (const e of exHexes) grid.set(e, { feature: "extract", hazard: null });
-    objective = {
-      kind: "extract",
-      description: `reach the extraction point (far side) with your survivors`,
-      extractHexes: exHexes,
-    };
+  if (kind === "boss") {
+    const bd = bossForDepth(depth);
+    const spot = farCells[0] ?? { q: w - 2, r: Math.floor(h / 2) };
+    used.add(key(spot));
+    enemies.push(unitFromBoss(bd, spot));
+    objective = { kind: "slay", description: `bring down ${bd.name}` };
   } else {
-    objective = {
-      kind: "slay",
-      description: kind === "elite" ? "kill the pit champion and its handlers" : "kill everything down here",
-    };
+    const budget = enemyBudget(depth, kind);
+    const roster = pickRoster(rng, depth, kind, budget);
+    for (const def of roster) {
+      let placed: Hex | null = null;
+      const wantsHigh = def.archetype === "archer";
+      const pool = [...farCells].sort((a, b) =>
+        wantsHigh ? b.elevation - a.elevation || b.q - a.q : b.q - a.q,
+      );
+      for (const t of pool) {
+        const hh = { q: t.q, r: t.r };
+        if (used.has(key(hh))) continue;
+        if (deployZone.some((d) => distance(d, hh) <= 2)) continue;
+        placed = hh;
+        break;
+      }
+      if (!placed) placed = { q: farCells[0].q, r: farCells[0].r };
+      used.add(key(placed));
+      enemies.push(unitFromMonster(def, placed, depthHpScale(depth)));
+    }
+
+    if (kind === "extraction") {
+      const exHexes = cells
+        .filter((t) => t.terrain !== "wall" && t.terrain !== "chasm")
+        .sort((a, b) => b.q - a.q)
+        .slice(0, 3)
+        .map((t) => ({ q: t.q, r: t.r }));
+      for (const e of exHexes) grid.set(e, { feature: "extract", hazard: null });
+      objective = {
+        kind: "extract",
+        description: `reach the extraction point (far side) with your survivors`,
+        extractHexes: exHexes,
+      };
+    } else {
+      objective = {
+        kind: "slay",
+        description: kind === "elite" ? "kill the pit champion and its handlers" : "kill everything down here",
+      };
+    }
   }
 
   // clear hazards/walls off enemy tiles

@@ -162,6 +162,16 @@ export interface Unit {
   cowardTriggered?: boolean;
   relentlessUsed?: boolean;
   intent?: UnitIntent | null;
+  boss?: BossState | null;
+}
+
+export interface BossState {
+  defId: string;
+  /** index of the last phase entered (0 = still on the opening phase) */
+  phase: number;
+  /** round number the last big move was telegraphed/used */
+  lastMoveRound: number;
+  telegraph: { moveId: string; hexes: Hex[]; name: string } | null;
 }
 
 export interface UnitIntent {
@@ -190,6 +200,47 @@ export interface MonsterDef {
   onDeath?: "gas";
 }
 
+export interface BossMoveDef {
+  id: string;
+  name: string;
+  /** shown when the move is telegraphed, a round before it lands */
+  telegraphText: string;
+  /** every how many rounds this boss attempts a big move */
+  cooldown: number;
+  /** hexes within this range of the blast centre are hit */
+  radius: number;
+  centerOn: "self" | "target";
+  damage: string; // dice
+  push?: boolean;
+}
+
+export interface BossPhaseDef {
+  /** this phase begins once HP drops to/under this fraction of max */
+  hpPct: number;
+  text: string;
+  addAdds?: string[]; // monster ids to summon on transition
+  hazard?: "acid" | "spikes" | "fire" | "gas";
+  /** a small permanent buff applied the moment this phase begins ("it gets faster/angrier") */
+  statBuff?: { toHit?: number; damageBonus?: number };
+}
+
+export interface BossDef {
+  id: string;
+  name: string;
+  depth: number; // the Deep this boss is tuned for
+  hp: number;
+  ac: number;
+  toHit: number;
+  weapon: WeaponDef;
+  damageBonus: number;
+  speed: number;
+  initiative: number;
+  tags: string[];
+  moves: BossMoveDef[];
+  phases: BossPhaseDef[];
+  blurb: string;
+}
+
 export type ObjectiveKind = "slay" | "extract";
 
 export interface Objective {
@@ -199,7 +250,7 @@ export interface Objective {
   extractHexes?: Hex[];
 }
 
-export type FloorKind = "combat" | "elite" | "extraction";
+export type FloorKind = "combat" | "elite" | "boss" | "extraction";
 
 export interface FloorCandidate {
   kind: FloorKind;
