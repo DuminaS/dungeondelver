@@ -31,6 +31,7 @@ import { Encounter } from "./game/encounter";
 import { BoardView } from "./ui/render";
 import { CONDITION_ICON, icon, logStyle, stat } from "./ui/icons";
 import { crest } from "./ui/crests";
+import { classAccent } from "./ui/classColor";
 
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
@@ -109,9 +110,17 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
-function attrChip(k: AbilityKey, v: number, primary: boolean): string {
+function attrChip(k: AbilityKey, v: number, accent?: string): string {
   const tone = v >= 15 ? "good" : v <= 8 ? "bad" : "";
-  return `<div class="attr ${tone} ${primary ? "key" : ""}"><i>${k}</i>${v}</div>`;
+  return `<div class="attr ${tone} ${accent ? "key" : ""}"${accent ? ` style="--accent:${accent}"` : ""}><i>${k}</i>${v}</div>`;
+}
+
+/** the colour of the first class (in draft order) that claims `k` as its key stat */
+function statAccentFor(c: Character, k: AbilityKey): string | undefined {
+  for (const id of new Set(c.levelHistory)) {
+    if (CLASSES[id].primary === k) return classAccent(id);
+  }
+  return undefined;
 }
 
 function weaponLabel(c: Character): string {
@@ -121,7 +130,7 @@ function weaponLabel(c: Character): string {
 function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean } = {}): string {
   const cls = CLASSES[c.classId];
   const race = RACES[c.raceId];
-  const primaries = new Set([...new Set(c.levelHistory)].map((id) => CLASSES[id].primary));
+  const accent = classAccent(primaryClassOf(c));
   const traits = c.traitIds
     .map((id) => {
       const t = TRAITS[id];
@@ -130,7 +139,7 @@ function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean } =
     .join("");
   const clickAttr = opts.sheet ? ` data-sheet="${c.id}"` : "";
   return `
-  <div class="ucard ${opts.pick ? "ucard--pick" : ""} ${opts.sheet ? "ucard--sheet" : ""}" data-id="${c.id}"${clickAttr} title="${opts.sheet ? "View sheet" : esc(cls.blurb)}">
+  <div class="ucard ${opts.pick ? "ucard--pick" : ""} ${opts.sheet ? "ucard--sheet" : ""}" data-id="${c.id}"${clickAttr} style="--card-accent:${accent}" title="${opts.sheet ? "View sheet" : esc(cls.blurb)}">
     <div class="ucard__head">
       ${crest(c.classId, "sm")}
       <div style="flex:1;min-width:0">
@@ -143,18 +152,19 @@ function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean } =
     <div class="statrow">
       ${stat("hp", c.maxHp)} ${stat("def", c.ac)} ${stat("move", c.speed)} ${stat("atk", weaponLabel(c))}
     </div>
-    <div class="attrs">${ABILITIES.map((k) => attrChip(k, c.abilities[k], primaries.has(k))).join("")}</div>
+    <div class="attrs">${ABILITIES.map((k) => attrChip(k, c.abilities[k], statAccentFor(c, k))).join("")}</div>
     ${traits ? `<div class="taglist">${traits}</div>` : `<div class="sub">— no traits —</div>`}
   </div>`;
 }
 
 // ---------------------------------------------------------------- character sheet
 
-function abilityCard(c: Character, k: AbilityKey, isPrimary: boolean): string {
+function abilityCard(c: Character, k: AbilityKey): string {
   const v = c.abilities[k];
   const m = Math.floor((v - 10) / 2);
   const tone = v >= 15 ? "good" : v <= 8 ? "bad" : "";
-  return `<div class="ab-card ${isPrimary ? "ab-card--primary" : ""} ${tone ? `ab-card--${tone}` : ""}">
+  const accent = statAccentFor(c, k);
+  return `<div class="ab-card ${accent ? "ab-card--primary" : ""} ${tone ? `ab-card--${tone}` : ""}"${accent ? ` style="--accent:${accent}"` : ""}>
     <span class="ab-card__k">${k}</span>
     <span class="ab-card__v">${v}</span>
     <span class="ab-card__m">${m >= 0 ? "+" : ""}${m}</span>
@@ -165,7 +175,8 @@ function classFeatureCard(fs: FeatureSource): string {
   const def = FEATURES[fs.id];
   if (!def) return "";
   const isRace = fs.source.endsWith("(race)");
-  return `<details class="fx fx--${isRace ? "race" : "class"}">
+  const accent = fs.classId ? classAccent(fs.classId) : null;
+  return `<details class="fx fx--${isRace ? "race" : "class"}"${accent ? ` style="--accent:${accent}"` : ""}>
     <summary><span class="fx__ic">${icon(isRace ? "chevron" : "star")}</span><span class="fx__name">${esc(def.name)}</span><span class="fx__src">${esc(fs.source)}</span></summary>
     <p class="fx__text">${esc(def.text)}</p>
   </details>`;
@@ -184,14 +195,15 @@ function classPathLane(c: Character, classId: ClassId, isPrimary: boolean): stri
   const counts = classLevelsOf(c);
   const n = counts[classId] ?? 0;
   const cls = CLASSES[classId];
+  const accent = classAccent(classId);
   const dots = Array.from({ length: n }, () => `<span class="lane__dot"></span>`).join("");
   const feats: string[] = [];
   for (let l = 1; l <= n; l++) feats.push(...(cls.features[l] ?? []).map((id) => FEATURES[id]?.name).filter(Boolean) as string[]);
-  return `<div class="lane ${isPrimary ? "lane--primary" : ""}">
+  return `<div class="lane ${isPrimary ? "lane--primary" : ""}" style="--accent:${accent}">
     <div class="lane__head">
       ${crest(classId, "sm")}
       <div style="flex:1"><b>${esc(cls.name)}</b> <span class="sub">Level ${n}</span></div>
-      ${isPrimary ? `<span class="pill" style="color:var(--gold);border-color:var(--gold)">Primary</span>` : ""}
+      ${isPrimary ? `<span class="pill">Primary</span>` : ""}
     </div>
     <div class="lane__dots">${dots}</div>
     ${feats.length ? `<div class="sub">${feats.map(esc).join(" · ")}</div>` : ""}
@@ -207,7 +219,7 @@ function multiclassTeaser(c: Character): string {
     .map((id) => {
       const adm = admissionFor(c, id);
       const chips = adm.chips.map((ch) => `<span class="reqchip ${ch.met ? "reqchip--met" : ""}">${ch.met ? "✓" : "✕"} ${esc(ch.label)}</span>`).join("");
-      return `<div class="mc-row ${adm.met ? "mc-row--open" : ""}">${crest(id, "xs")}<b>${esc(CLASSES[id].name)}</b><span class="reqchips">${chips}</span></div>`;
+      return `<div class="mc-row ${adm.met ? "mc-row--open" : ""}" style="--accent:${classAccent(id)}">${crest(id, "xs")}<b>${esc(CLASSES[id].name)}</b><span class="reqchips">${chips}</span></div>`;
     })
     .join("");
   return `<details class="ledger">
@@ -230,14 +242,15 @@ function renderSheet(): void {
   const frac = c.hp / c.maxHp;
   const statusLabel = frac > 0.66 ? "Healthy" : frac > 0.33 ? "Wounded" : "Critical";
   const statusTone = frac > 0.66 ? "good" : frac > 0.33 ? "warn" : "bad";
-  const primaries = new Set([...new Set(c.levelHistory)].map((id) => CLASSES[id].primary));
   const lanes = [...new Set(c.levelHistory)];
   const primary = primaryClassOf(c);
+  const accent = classAccent(primary);
 
   sheetRoot.hidden = false;
   sheetRoot.innerHTML = `
     <div class="sheet-backdrop" id="sheet-close"></div>
-    <div class="sheet-panel">
+    <div class="sheet-panel" style="--accent:${accent}">
+      <div class="sheet-banner"></div>
       <button class="sheet-x" id="sheet-x">${icon("x")}</button>
       <div class="sheet-head">
         ${crest(c.classId, "xl")}
@@ -245,7 +258,7 @@ function renderSheet(): void {
           <div class="eyebrow">${esc(race.name)} · ${esc(classHeaderLabel(c))}</div>
           <h2>${esc(c.name)}</h2>
           <div class="row" style="gap:6px">
-            <span class="pill" style="color:var(--gold);border-color:var(--gold)">Level ${c.level}</span>
+            <span class="pill" style="color:var(--accent);border-color:var(--accent)">Level ${c.level}</span>
             <span class="pill" style="color:var(--${statusTone});border-color:var(--${statusTone})">${statusLabel}</span>
           </div>
         </div>
@@ -259,7 +272,7 @@ function renderSheet(): void {
       </div>
 
       <h3>Abilities</h3>
-      <div class="ability-grid">${ABILITIES.map((k) => abilityCard(c, k, primaries.has(k))).join("")}</div>
+      <div class="ability-grid">${ABILITIES.map((k) => abilityCard(c, k)).join("")}</div>
 
       ${c.skills.length ? `<h3>Skills</h3><div class="taglist">${c.skills.map((s) => `<span class="tag">${esc(s)}</span>`).join("")}</div>` : ""}
 
@@ -1038,7 +1051,8 @@ function levelUpChooser(c: Character): string {
     const cls = CLASSES[id];
     const label = known ? `${cls.name} ${(counts[id] ?? 0) + 1}` : cls.name;
     const chips = adm.chips.map((ch) => `${ch.met ? "✓" : "✗"} ${ch.label}`).join("  ·  ");
-    return `<button data-lvl="${id}" class="${known ? "primary" : ""}" ${known || adm.met ? "" : "disabled"} title="${esc(known ? "Advance a class you already have." : chips)}">${crest(id, "xs")} ${esc(label)}</button>`;
+    const style = known ? ` style="--accent:${classAccent(id)}"` : "";
+    return `<button data-lvl="${id}" class="${known ? "accent-btn" : ""}"${style} ${known || adm.met ? "" : "disabled"} title="${esc(known ? "Advance a class you already have." : chips)}">${crest(id, "xs")} ${esc(label)}</button>`;
   });
   return `
   <div class="panel lvlup" data-char="${c.id}">

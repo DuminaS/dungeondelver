@@ -281,6 +281,8 @@ export function xpValue(monsterTier: number, monsterHp: number): number {
 export interface FeatureSource {
   id: string;
   source: string;
+  /** the class that granted it, if source is a class (not race) */
+  classId?: ClassId;
 }
 
 /** every class feature this character has, tagged with which class/level granted it */
@@ -293,7 +295,7 @@ export function featureSources(c: Character): FeatureSource[] {
     for (const f of CLASSES[clsId].features[seen[clsId]!] ?? []) {
       if (known.has(f)) continue;
       known.add(f);
-      out.push({ id: f, source: `${CLASSES[clsId].name} · L${seen[clsId]}` });
+      out.push({ id: f, source: `${CLASSES[clsId].name} · L${seen[clsId]}`, classId: clsId });
     }
   }
   const race = RACES[c.raceId];

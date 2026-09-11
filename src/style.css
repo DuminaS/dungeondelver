@@ -136,7 +136,8 @@ input[type="text"]:focus-visible { outline: 2px solid var(--gold); outline-offse
 .attr i { display: block; font-style: normal; font-size: 9px; letter-spacing: 0.06em; color: var(--ink-faint); margin-bottom: 2px; }
 .attr.good { color: var(--good); border-color: #43502e; }
 .attr.bad  { color: var(--bad);  border-color: #4c2723; }
-.attr.key  { box-shadow: inset 0 -2px 0 var(--gold); }
+.attr.key  { box-shadow: inset 0 -2px 0 var(--accent, var(--gold)); }
+.attr.key i { color: var(--accent, var(--gold)); }
 
 /* class crest medallions (public/logos/<id>.webp — gold emblem on flat navy) */
 .crest {
@@ -188,14 +189,13 @@ input[type="text"]:focus-visible { outline: 2px solid var(--gold); outline-offse
   position: relative;
   background: var(--stone);
   border: 1px solid var(--iron);
-  border-left: 3px solid var(--iron-2);
+  border-left: 3px solid var(--card-accent, var(--iron-2));
   border-radius: var(--r);
   padding: 11px 12px;
   display: flex; flex-direction: column; gap: 8px;
 }
 .ucard--pick { cursor: pointer; }
-.ucard--pick:hover { background: var(--stone-2); border-color: var(--gold); border-left-color: var(--gold); }
-.ucard--player { border-left-color: var(--player); }
+.ucard--pick:hover { background: var(--stone-2); border-color: var(--card-accent, var(--gold)); }
 .ucard__head { display: flex; justify-content: space-between; align-items: center; gap: 9px; }
 .ucard__name { font-family: var(--font-display); font-weight: 700; font-size: 15px; color: var(--ink); line-height: 1.15; }
 .ucard__kind { font-size: 11.5px; color: var(--ink-dim); display: flex; align-items: center; gap: 5px; }
@@ -396,21 +396,31 @@ button.big { padding: 12px 20px; font-size: 15px; align-self: flex-start; margin
 }
 
 .lvlup { border-color: var(--gold); }
+button.accent-btn { border-color: var(--accent, var(--gold)); color: var(--accent, var(--gold)); background: transparent; font-weight: 700; }
+button.accent-btn:hover:not(:disabled) { background: var(--accent, var(--gold)); color: #17100a; }
 
+/* --accent is set per-instance (inline style) to a class's identity colour;
+   every rule below falls back to gold so the app still works with none set. */
 #sheet-root { position: fixed; inset: 0; z-index: 10000; }
 .sheet-backdrop { position: absolute; inset: 0; background: rgba(6,4,3,0.72); backdrop-filter: blur(1px); }
 .sheet-panel {
   position: absolute; top: 0; right: 0; height: 100%; width: min(480px, 100vw);
   background: linear-gradient(180deg, var(--stone-2), var(--stone) 12%);
   border-left: 1px solid var(--iron-2);
-  padding: 20px 20px 40px; overflow-y: auto;
+  padding: 24px 20px 40px; overflow-y: auto;
   box-shadow: -30px 0 60px -20px rgba(0,0,0,0.7);
+}
+.sheet-banner {
+  position: absolute; top: 0; left: 0; right: 0; height: 5px;
+  background: linear-gradient(90deg, var(--accent, var(--gold)), transparent 130%);
 }
 .sheet-x {
   position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .sheet-head { display: flex; gap: 14px; align-items: center; padding-right: 34px; }
+.sheet-head .crest { border-color: var(--accent, var(--iron-2)); box-shadow: 0 0 22px -6px var(--accent, transparent); }
+.sheet-head__info .eyebrow { color: var(--accent, var(--ink-dim)); }
 .sheet-head__info h2 { font-size: 20px; text-transform: none; letter-spacing: 0; color: var(--ink); margin: 2px 0 6px; }
 .sheet-combat { margin: 16px 0; padding: 10px 12px; background: var(--bg-deep); border: 1px solid var(--iron); border-radius: var(--r); }
 .sheet-panel h3 { margin: 18px 0 8px; }
@@ -423,14 +433,15 @@ button.big { padding: 12px 20px; font-size: 15px; align-self: flex-start; margin
 .ab-card__k { font: 600 10px/1 var(--font-mono); letter-spacing: 0.1em; color: var(--ink-faint); }
 .ab-card__v { font: 700 22px/1.3 var(--font-display); color: var(--ink); }
 .ab-card__m { font: 600 11px/1 var(--font-mono); color: var(--ink-dim); }
-.ab-card--primary { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 0 14px -4px var(--gold); }
-.ab-card--primary .ab-card__k { color: var(--gold); }
+.ab-card--primary { border-color: var(--accent, var(--gold)); box-shadow: 0 0 0 1px var(--accent, var(--gold)), 0 0 14px -4px var(--accent, var(--gold)); }
+.ab-card--primary .ab-card__k { color: var(--accent, var(--gold)); }
+.ab-card__dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin: 3px 1px 0; }
 .ab-card--good .ab-card__v { color: var(--good); }
 .ab-card--bad .ab-card__v { color: var(--bad); }
 
 .fx-list { display: flex; flex-direction: column; gap: 6px; }
 .fx {
-  background: var(--stone); border: 1px solid var(--iron); border-left: 3px solid var(--iron-2);
+  background: var(--stone); border: 1px solid var(--iron); border-left: 3px solid var(--accent, var(--iron-2));
   border-radius: 5px; padding: 0;
 }
 .fx summary {
@@ -440,25 +451,29 @@ button.big { padding: 12px 20px; font-size: 15px; align-self: flex-start; margin
 .fx summary::-webkit-details-marker { display: none; }
 .fx summary::after { content: "›"; margin-left: auto; color: var(--ink-faint); transform: rotate(90deg); transition: transform 0.15s; }
 .fx[open] summary::after { transform: rotate(-90deg); }
-.fx__ic { color: var(--ink-faint); width: 15px; height: 15px; }
+.fx__ic { color: var(--accent, var(--ink-faint)); width: 15px; height: 15px; }
 .fx__name { font-weight: 600; color: var(--ink); }
 .fx__src { margin-left: auto; font: 500 10px/1 var(--font-mono); color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; }
 .fx__text { margin: 0; padding: 0 10px 10px 33px; font-size: 12.5px; color: var(--ink-dim); }
-.fx--class { border-left-color: var(--player); } .fx--class .fx__ic { color: var(--player); }
-.fx--race { border-left-color: var(--ink-faint); }
-.fx--boon { border-left-color: var(--good); } .fx--boon .fx__ic { color: var(--good); }
-.fx--bane { border-left-color: var(--bad); } .fx--bane .fx__ic { color: var(--bad); }
-.fx--quirk { border-left-color: var(--gold); } .fx--quirk .fx__ic { color: var(--gold); }
+.fx--race { border-left-color: var(--ink-faint) !important; }
+.fx--race .fx__ic { color: var(--ink-faint); }
+.fx--boon { border-left-color: var(--good) !important; } .fx--boon .fx__ic { color: var(--good); }
+.fx--bane { border-left-color: var(--bad) !important; } .fx--bane .fx__ic { color: var(--bad); }
+.fx--quirk { border-left-color: var(--gold) !important; } .fx--quirk .fx__ic { color: var(--gold); }
 
 .lanes { display: flex; flex-direction: column; gap: 8px; }
-.lane { background: var(--stone); border: 1px solid var(--iron); border-left: 3px solid var(--iron-2); border-radius: 6px; padding: 9px 11px; }
-.lane--primary { border-left-color: var(--gold); }
+.lane { background: var(--stone); border: 1px solid var(--iron); border-left: 3px solid var(--accent, var(--iron-2)); border-radius: 6px; padding: 9px 11px; }
+.lane .crest { border-color: var(--accent, var(--iron-2)); }
+.lane--primary { box-shadow: 0 0 0 1px var(--accent, var(--gold)) inset; }
+.lane--primary .pill { color: var(--accent, var(--gold)) !important; border-color: var(--accent, var(--gold)) !important; }
 .lane__head { display: flex; align-items: center; gap: 9px; }
 .lane__dots { display: flex; gap: 3px; margin: 6px 0 4px; }
-.lane__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+.lane__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent, var(--gold)); }
 
-.mc-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; opacity: 0.6; flex-wrap: wrap; }
+.mc-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; opacity: 0.55; flex-wrap: wrap; }
 .mc-row--open { opacity: 1; }
+.mc-row--open b { color: var(--accent, var(--good)); }
+.mc-row .crest { border-color: var(--accent, var(--iron-2)); }
 .reqchips { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; }
 .reqchip { font: 500 10px/1 var(--font-mono); padding: 2px 6px; border-radius: 999px; border: 1px solid var(--iron-2); color: var(--ink-faint); }
 .reqchip--met { color: var(--good); border-color: #43502e; }
