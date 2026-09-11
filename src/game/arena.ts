@@ -1,5 +1,5 @@
 import { RNG } from "../core/rng";
-import { Hex, distance, key } from "../core/hex";
+import { Hex, distance, eq, fromKey, key, neighbors } from "../core/hex";
 import { HexGrid, Terrain } from "../core/grid";
 import { unitFromBoss, unitFromMonster } from "./units";
 import { bossForDepth, MONSTERS } from "./data";
@@ -150,7 +150,93 @@ export function generateArena(
     }
   }
 
+  // ---- guarantee winnability: deploy zone must have a walkable path to
+  // every enemy (and every extraction point) — walls/chasm/scatter can
+  // otherwise wall off a whole side of the map into a dead softlock
+  const targets = enemies.map((e) => e.pos).concat(objective.extractHexes ?? []);
+  ensureConnectivity(grid, deployZone, targets);
+
   return { grid, enemies, objective, deployZone, biome };
+}
+
+/**
+ * Walls, the chasm seam, and clumped terrain scatter can — rarely but
+ * definitely — wall off the deploy zone from an enemy or an extraction
+ * point entirely, producing a softlock (neither side can ever reach the
+ * other). After all terrain is placed, flood-fill from the deploy zone
+ * over walkable tiles; for anything still unreachable, carve the shortest
+ * possible corridor of walls/chasm back open until it is. Cheap (board is
+ * a few hundred tiles) and only ever touches terrain that would otherwise
+ * strand a target, so it never changes an already-winnable floor.
+ */
+function ensureConnectivity(grid: HexGrid, deployZone: Hex[], targets: Hex[]): void {
+  const passable = (h: Hex): boolean => {
+    const t = grid.get(h);
+    return !!t && t.terrain !== "wall" && t.terrain !== "chasm";
+  };
+  const floodFromDeploy = (): Set<string> => {
+    const seen = new Set<string>();
+    const queue: Hex[] = [];
+    for (const d of deployZone) {
+      if (passable(d) && !seen.has(key(d))) {
+        seen.add(key(d));
+        queue.push(d);
+      }
+    }
+    let i = 0;
+    while (i < queue.length) {
+      const cur = queue[i++];
+      for (const n of neighbors(cur)) {
+        if (!grid.has(n) || seen.has(key(n)) || !passable(n)) continue;
+        seen.add(key(n));
+        queue.push(n);
+      }
+    }
+    return seen;
+  };
+
+  for (const target of targets) {
+    if (!grid.has(target)) continue;
+    const reached = floodFromDeploy();
+    if (reached.has(key(target))) continue;
+
+    // multi-source BFS from the reached region over ALL tiles (terrain
+    // ignored) to find the shortest possible carve path to the target
+    const cameFrom = new Map<string, string | null>();
+    const queue: Hex[] = [];
+    for (const k of reached) {
+      cameFrom.set(k, null);
+      queue.push(fromKey(k));
+    }
+    let hit: Hex | null = null;
+    let i = 0;
+    while (i < queue.length) {
+      const cur = queue[i++];
+      if (eq(cur, target)) {
+        hit = cur;
+        break;
+      }
+      for (const n of neighbors(cur)) {
+        if (!grid.has(n)) continue;
+        const nk = key(n);
+        if (cameFrom.has(nk)) continue;
+        cameFrom.set(nk, key(cur));
+        queue.push(n);
+      }
+    }
+    if (!hit) continue; // board isn't contiguous — shouldn't happen, nothing sane to carve
+
+    // walk back from the target to the reached frontier, opening anything blocking
+    let ck: string | null = key(hit);
+    while (ck && !reached.has(ck)) {
+      const t = grid.get(fromKey(ck));
+      if (t && (t.terrain === "wall" || t.terrain === "chasm")) {
+        t.terrain = "open";
+        t.hazard = null;
+      }
+      ck = cameFrom.get(ck) ?? null;
+    }
+  }
 }
 
 function enemyBudget(depth: number, kind: FloorKind): number {

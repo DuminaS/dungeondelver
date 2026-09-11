@@ -278,6 +278,56 @@ describe("full run simulation", () => {
     }
   });
 
+  it("generated arenas never softlock: every enemy and extraction hex is reachable from deploy", async () => {
+    const { generateArena } = await import("../game/arena");
+    const { neighbors: hexNeighbors } = await import("../core/hex");
+    const { HexGrid } = await import("../core/grid");
+
+    const passableFlood = (grid: InstanceType<typeof HexGrid>, starts: { q: number; r: number }[]) => {
+      const seen = new Set<string>();
+      const queue: { q: number; r: number }[] = [];
+      for (const s of starts) {
+        const t = grid.get(s);
+        if (t && t.terrain !== "wall" && t.terrain !== "chasm") {
+          seen.add(key(s));
+          queue.push(s);
+        }
+      }
+      let i = 0;
+      while (i < queue.length) {
+        const cur = queue[i++];
+        for (const n of hexNeighbors(cur)) {
+          const nk = key(n);
+          if (seen.has(nk) || !grid.has(n)) continue;
+          const t = grid.get(n)!;
+          if (t.terrain === "wall" || t.terrain === "chasm") continue;
+          seen.add(nk);
+          queue.push(n);
+        }
+      }
+      return seen;
+    };
+
+    let checked = 0;
+    for (const kind of ["combat", "elite", "extraction", "boss"] as const) {
+      for (let depth = 1; depth <= 10; depth++) {
+        for (let i = 0; i < 6; i++) {
+          const rng = new RNG(`connectivity-${kind}-${depth}-${i}`);
+          const arena = generateArena(rng, depth, kind, 3);
+          const reached = passableFlood(arena.grid, arena.deployZone);
+          const targets = arena.enemies
+            .map((e) => e.pos)
+            .concat(arena.objective.extractHexes ?? []);
+          for (const t of targets) {
+            expect(reached.has(key(t))).toBe(true);
+          }
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(200);
+  });
+
   it("grid pathfinding never returns a path through walls", () => {
     const run = new Run("wall-check");
     while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
