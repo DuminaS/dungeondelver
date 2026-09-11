@@ -1,7 +1,17 @@
 import "./style.css";
 import { Hex, eq, key } from "./core/hex";
-import { AbilityKey, ABILITIES, Character, Unit } from "./game/types";
-import { CLASSES, FEATURES, RACES, TRAITS } from "./game/data";
+import { AbilityKey, ABILITIES, Character, ClassId, CLASS_IDS, Unit } from "./game/types";
+import { admissionFor, CLASSES, FEATURES, RACES, TRAITS } from "./game/data";
+import {
+  applyLevelUp,
+  classHeaderLabel,
+  classLabel,
+  classLevelsOf,
+  featureSources,
+  FeatureSource,
+  grantXp,
+  primaryClassOf,
+} from "./game/character";
 import { RUN_CONFIG } from "./game/config";
 import {
   BUILDINGS,
@@ -54,6 +64,45 @@ app.addEventListener(
   true,
 );
 
+// ---- character sheet overlay: openable from anywhere via a [data-sheet]/.peek click ----
+const sheetRoot = document.createElement("div");
+sheetRoot.id = "sheet-root";
+sheetRoot.hidden = true;
+document.body.appendChild(sheetRoot);
+let sheetCharId: string | null = null;
+
+function findCharacter(id: string): Character | null {
+  if (!run) return null;
+  return run.state.party.find((c) => c.id === id) ?? run.pool.find((c) => c.id === id) ?? null;
+}
+function openSheet(id: string): void {
+  sheetCharId = id;
+  renderSheet();
+}
+function closeSheet(): void {
+  sheetCharId = null;
+  sheetRoot.hidden = true;
+  sheetRoot.innerHTML = "";
+}
+
+// capture phase: a .peek button always opens the sheet and never triggers whatever's under it
+app.addEventListener(
+  "click",
+  (e) => {
+    const peek = (e.target as HTMLElement).closest(".peek") as HTMLElement | null;
+    if (peek?.dataset.sheet) {
+      e.stopPropagation();
+      openSheet(peek.dataset.sheet);
+    }
+  },
+  true,
+);
+// bubble phase: whole-card click for cards rendered with { sheet: true }
+app.addEventListener("click", (e) => {
+  const el = (e.target as HTMLElement).closest("[data-sheet]") as HTMLElement | null;
+  if (el?.dataset.sheet) openSheet(el.dataset.sheet);
+});
+
 // ---------------------------------------------------------------- helpers
 
 function esc(s: string): string {
@@ -69,32 +118,165 @@ function weaponLabel(c: Character): string {
   return `${c.weapon.dice}${c.weapon.ranged ? `·r${c.weapon.range}` : ""}`;
 }
 
-function characterCard(c: Character, opts: { pick?: boolean } = {}): string {
+function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean } = {}): string {
   const cls = CLASSES[c.classId];
   const race = RACES[c.raceId];
+  const primaries = new Set([...new Set(c.levelHistory)].map((id) => CLASSES[id].primary));
   const traits = c.traitIds
     .map((id) => {
       const t = TRAITS[id];
       return t ? `<span class="tag ${t.kind}" title="${esc(t.text)}">${esc(t.name)}</span>` : "";
     })
     .join("");
+  const clickAttr = opts.sheet ? ` data-sheet="${c.id}"` : "";
   return `
-  <div class="ucard ${opts.pick ? "ucard--pick" : "ucard--player"}" data-id="${c.id}" title="${esc(cls.blurb)}">
+  <div class="ucard ${opts.pick ? "ucard--pick" : ""} ${opts.sheet ? "ucard--sheet" : ""}" data-id="${c.id}"${clickAttr} title="${opts.sheet ? "View sheet" : esc(cls.blurb)}">
     <div class="ucard__head">
       ${crest(c.classId, "sm")}
       <div style="flex:1;min-width:0">
         <div class="ucard__name">${esc(c.name)}</div>
-        <div class="ucard__kind">${esc(race.name)} ${esc(cls.name)}</div>
+        <div class="ucard__kind">${esc(race.name)} ${esc(classHeaderLabel(c))}</div>
       </div>
-      <span class="ucard__lvl">L${c.level}</span>
+      <span class="ucard__lvl">L${c.level}${c.pendingLevelUps ? `<i class="lvlpip">+${c.pendingLevelUps}</i>` : ""}</span>
+      <button class="peek" data-sheet="${c.id}" title="View sheet">${icon("rng")}</button>
     </div>
     <div class="statrow">
       ${stat("hp", c.maxHp)} ${stat("def", c.ac)} ${stat("move", c.speed)} ${stat("atk", weaponLabel(c))}
     </div>
-    <div class="attrs">${ABILITIES.map((k) => attrChip(k, c.abilities[k], k === cls.primary)).join("")}</div>
+    <div class="attrs">${ABILITIES.map((k) => attrChip(k, c.abilities[k], primaries.has(k))).join("")}</div>
     ${traits ? `<div class="taglist">${traits}</div>` : `<div class="sub">— no traits —</div>`}
   </div>`;
 }
+
+// ---------------------------------------------------------------- character sheet
+
+function abilityCard(c: Character, k: AbilityKey, isPrimary: boolean): string {
+  const v = c.abilities[k];
+  const m = Math.floor((v - 10) / 2);
+  const tone = v >= 15 ? "good" : v <= 8 ? "bad" : "";
+  return `<div class="ab-card ${isPrimary ? "ab-card--primary" : ""} ${tone ? `ab-card--${tone}` : ""}">
+    <span class="ab-card__k">${k}</span>
+    <span class="ab-card__v">${v}</span>
+    <span class="ab-card__m">${m >= 0 ? "+" : ""}${m}</span>
+  </div>`;
+}
+
+function classFeatureCard(fs: FeatureSource): string {
+  const def = FEATURES[fs.id];
+  if (!def) return "";
+  const isRace = fs.source.endsWith("(race)");
+  return `<details class="fx fx--${isRace ? "race" : "class"}">
+    <summary><span class="fx__ic">${icon(isRace ? "chevron" : "star")}</span><span class="fx__name">${esc(def.name)}</span><span class="fx__src">${esc(fs.source)}</span></summary>
+    <p class="fx__text">${esc(def.text)}</p>
+  </details>`;
+}
+
+function traitCard(id: string): string {
+  const t = TRAITS[id];
+  if (!t) return "";
+  return `<details class="fx fx--${t.kind}">
+    <summary><span class="fx__ic">${icon(t.kind === "boon" ? "buff" : t.kind === "bane" ? "debuff" : "star")}</span><span class="fx__name">${esc(t.name)}</span><span class="fx__src">Trait · ${t.kind}</span></summary>
+    <p class="fx__text">${esc(t.text)}</p>
+  </details>`;
+}
+
+function classPathLane(c: Character, classId: ClassId, isPrimary: boolean): string {
+  const counts = classLevelsOf(c);
+  const n = counts[classId] ?? 0;
+  const cls = CLASSES[classId];
+  const dots = Array.from({ length: n }, () => `<span class="lane__dot"></span>`).join("");
+  const feats: string[] = [];
+  for (let l = 1; l <= n; l++) feats.push(...(cls.features[l] ?? []).map((id) => FEATURES[id]?.name).filter(Boolean) as string[]);
+  return `<div class="lane ${isPrimary ? "lane--primary" : ""}">
+    <div class="lane__head">
+      ${crest(classId, "sm")}
+      <div style="flex:1"><b>${esc(cls.name)}</b> <span class="sub">Level ${n}</span></div>
+      ${isPrimary ? `<span class="pill" style="color:var(--gold);border-color:var(--gold)">Primary</span>` : ""}
+    </div>
+    <div class="lane__dots">${dots}</div>
+    ${feats.length ? `<div class="sub">${feats.map(esc).join(" · ")}</div>` : ""}
+  </div>`;
+}
+
+function multiclassTeaser(c: Character): string {
+  const counts = classLevelsOf(c);
+  const notKnown = CLASS_IDS.filter((id) => !(counts[id] ?? 0));
+  if (!notKnown.length) return "";
+  const openCount = notKnown.filter((id) => admissionFor(c, id).met).length;
+  const rows = notKnown
+    .map((id) => {
+      const adm = admissionFor(c, id);
+      const chips = adm.chips.map((ch) => `<span class="reqchip ${ch.met ? "reqchip--met" : ""}">${ch.met ? "✓" : "✕"} ${esc(ch.label)}</span>`).join("");
+      return `<div class="mc-row ${adm.met ? "mc-row--open" : ""}">${crest(id, "xs")}<b>${esc(CLASSES[id].name)}</b><span class="reqchips">${chips}</span></div>`;
+    })
+    .join("");
+  return `<details class="ledger">
+    <summary>Multiclass paths — ${openCount} open of ${notKnown.length}</summary>
+    <div class="col" style="gap:6px">${rows}</div>
+  </details>`;
+}
+
+function renderSheet(): void {
+  if (!sheetCharId) {
+    sheetRoot.hidden = true;
+    return;
+  }
+  const c = findCharacter(sheetCharId);
+  if (!c) {
+    closeSheet();
+    return;
+  }
+  const race = RACES[c.raceId];
+  const frac = c.hp / c.maxHp;
+  const statusLabel = frac > 0.66 ? "Healthy" : frac > 0.33 ? "Wounded" : "Critical";
+  const statusTone = frac > 0.66 ? "good" : frac > 0.33 ? "warn" : "bad";
+  const primaries = new Set([...new Set(c.levelHistory)].map((id) => CLASSES[id].primary));
+  const lanes = [...new Set(c.levelHistory)];
+  const primary = primaryClassOf(c);
+
+  sheetRoot.hidden = false;
+  sheetRoot.innerHTML = `
+    <div class="sheet-backdrop" id="sheet-close"></div>
+    <div class="sheet-panel">
+      <button class="sheet-x" id="sheet-x">${icon("x")}</button>
+      <div class="sheet-head">
+        ${crest(c.classId, "xl")}
+        <div class="sheet-head__info">
+          <div class="eyebrow">${esc(race.name)} · ${esc(classHeaderLabel(c))}</div>
+          <h2>${esc(c.name)}</h2>
+          <div class="row" style="gap:6px">
+            <span class="pill" style="color:var(--gold);border-color:var(--gold)">Level ${c.level}</span>
+            <span class="pill" style="color:var(--${statusTone});border-color:var(--${statusTone})">${statusLabel}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="statrow sheet-combat">
+        ${stat("hp", `${c.hp}/${c.maxHp}`, statusTone)}
+        ${stat("def", c.ac)}
+        ${stat("move", c.speed)}
+        ${stat("atk", `${c.weapon.name} ${c.weapon.dice}${c.weapon.ranged ? ` · r${c.weapon.range}` : ""}`)}
+      </div>
+
+      <h3>Abilities</h3>
+      <div class="ability-grid">${ABILITIES.map((k) => abilityCard(c, k, primaries.has(k))).join("")}</div>
+
+      ${c.skills.length ? `<h3>Skills</h3><div class="taglist">${c.skills.map((s) => `<span class="tag">${esc(s)}</span>`).join("")}</div>` : ""}
+
+      <h3>Traits &amp; Features</h3>
+      <div class="fx-list">${featureSources(c).map(classFeatureCard).join("")}${c.traitIds.map(traitCard).join("")}</div>
+
+      <h3>Class Path</h3>
+      <div class="lanes">${lanes.map((id) => classPathLane(c, id, id === primary)).join("")}</div>
+      ${multiclassTeaser(c)}
+    </div>`;
+  document.getElementById("sheet-close")!.addEventListener("click", closeSheet);
+  document.getElementById("sheet-x")!.addEventListener("click", closeSheet);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && sheetCharId) closeSheet();
+});
 
 function render(): void {
   const map: Record<Phase, () => void> = {
@@ -248,7 +430,7 @@ function renderDraft(): void {
     <div class="cards" id="pool">${run.pool.map((c) => characterCard(c, { pick: true })).join("")}</div>
 
     <h2>Warband · ${run.state.party.length}/${run.partySize}</h2>
-    <div class="cards">${run.state.party.map((c) => characterCard(c)).join("") || '<p class="sub">— empty —</p>'}</div>
+    <div class="cards">${run.state.party.map((c) => characterCard(c, { sheet: true })).join("") || '<p class="sub">— empty —</p>'}</div>
 
     ${run.draftComplete ? `<div class="row"><button class="primary" id="descend">${icon("chevron")} Descend into the Pit</button></div>` : ""}
   </div>`;
@@ -315,7 +497,7 @@ function renderDescent(): void {
     </div>
 
     <h2>Warband</h2>
-    <div class="cards">${st.party.map((c) => characterCard(c)).join("")}</div>
+    <div class="cards">${st.party.map((c) => characterCard(c, { sheet: true })).join("")}</div>
   </div>`;
 
   document.querySelectorAll<HTMLElement>(".ucard[data-idx]").forEach((el) => {
@@ -815,6 +997,7 @@ function renderLog(): void {
 function renderAftermath(): void {
   if (!run || !report) return;
   const r = report;
+  const pending = run.state.party.filter((c) => c.pendingLevelUps > 0);
   app.innerHTML = `
   <div class="wrap center col">
     <div><div class="eyebrow">Aftermath</div><h1>Deep ${run.state.depth} cleared</h1></div>
@@ -825,16 +1008,62 @@ function renderAftermath(): void {
         ${r.deaths.length ? stat("skull", r.deaths.length, "bad", "lost") : stat("hp", run.state.party.length, "good", "all alive")}
       </div>
       ${r.deaths.length ? `<p class="log__line t-bad">${icon("skull")}<span>Lost: ${r.deaths.map(esc).join(", ")} — gear salvaged.</span></p>` : ""}
-      ${r.levelUps.length ? `<p class="log__line t-good">${icon("star")}<span>Level up: ${r.levelUps.map((l) => `${esc(l.name)} → L${l.to}`).join(", ")}</span></p>` : `<p class="sub">No level-ups this floor.</p>`}
+      ${r.levelUps.length ? `<p class="log__line t-good">${icon("star")}<span>Level up: ${r.levelUps.map((l) => `${esc(l.name)} +${l.count}`).join(", ")}</span></p>` : `<p class="sub">No level-ups this floor.</p>`}
     </div>
+
+    ${pending.length ? `<h2>${icon("star")} Choose advancement — ${pending.reduce((s, c) => s + c.pendingLevelUps, 0)} level-up${pending.reduce((s, c) => s + c.pendingLevelUps, 0) > 1 ? "s" : ""} to assign</h2>
+    <div class="col" id="lvlups">${pending.map(levelUpChooser).join("")}</div>` : ""}
+
     <h2>Warband</h2>
-    <div class="cards">${run.state.party.map((c) => characterCard(c)).join("")}</div>
-    <div class="row"><button class="primary" id="go">${icon("chevron")} Onward</button></div>
+    <div class="cards">${run.state.party.map((c) => characterCard(c, { sheet: true })).join("")}</div>
+    <div class="row">
+      <button class="primary" id="go" ${pending.length ? "disabled" : ""}>${icon("chevron")} Onward</button>
+      ${pending.length ? `<span class="hint">${icon("threat")} Assign every level before moving on</span>` : ""}
+    </div>
   </div>`;
+  wireLevelUpChooser();
   document.getElementById("go")!.addEventListener("click", () => {
+    if (run!.state.party.some((c) => c.pendingLevelUps > 0)) return;
     enc = null;
     phase = "descent";
     render();
+  });
+}
+
+function levelUpChooser(c: Character): string {
+  const counts = classLevelsOf(c);
+  const options = CLASS_IDS.map((id) => {
+    const known = (counts[id] ?? 0) > 0;
+    const adm = admissionFor(c, id);
+    const cls = CLASSES[id];
+    const label = known ? `${cls.name} ${(counts[id] ?? 0) + 1}` : cls.name;
+    const chips = adm.chips.map((ch) => `${ch.met ? "✓" : "✗"} ${ch.label}`).join("  ·  ");
+    return `<button data-lvl="${id}" class="${known ? "primary" : ""}" ${known || adm.met ? "" : "disabled"} title="${esc(known ? "Advance a class you already have." : chips)}">${crest(id, "xs")} ${esc(label)}</button>`;
+  });
+  return `
+  <div class="panel lvlup" data-char="${c.id}">
+    <div class="row" style="gap:10px;flex-wrap:nowrap">
+      ${crest(c.classId, "sm")}
+      <div style="flex:1;min-width:0">
+        <b>${esc(c.name)}</b> <span class="sub">${esc(classLabel(c))} · level ${c.level} → ${c.level + 1}</span>
+      </div>
+      <span class="pill">${c.pendingLevelUps} pending</span>
+    </div>
+    <div class="actiongrid">${options.join("")}</div>
+  </div>`;
+}
+
+function wireLevelUpChooser(): void {
+  document.getElementById("lvlups")?.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("[data-lvl]") as HTMLElement | null;
+    const panel = (e.target as HTMLElement).closest("[data-char]") as HTMLElement | null;
+    if (!btn || !panel || !run) return;
+    const c = run.state.party.find((x) => x.id === panel.dataset.char);
+    if (!c) return;
+    if (applyLevelUp(c, btn.dataset.lvl as ClassId)) {
+      flashToast(`${c.name} advances — now ${classLabel(c)}.`);
+      renderAftermath();
+    }
   });
 }
 
@@ -899,6 +1128,28 @@ function maybeDevJump(): boolean {
     guild.name = guild.name ?? "Dev Pit";
     guild.gold = 9000;
     phase = "settlement";
+    return true;
+  }
+  if (d === "sheet") {
+    guild.name = guild.name ?? "Dev Pit";
+    applyGuildToConfig(guild);
+    RUN_CONFIG.levelCap = 8;
+    run = new Run(p.get("seed") || "sheet-seed");
+    while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
+    run.beginDescent();
+    run.state.party.forEach((c, i) => {
+      grantXp(c, 50000);
+      const leaveOne = i === 0 && p.get("pending") !== null;
+      let g = 0;
+      while (c.pendingLevelUps > (leaveOne ? 1 : 0) && g++ < 20) {
+        const known = new Set(c.levelHistory);
+        const branch = c.level >= 2 && known.size < 2 ? CLASS_IDS.find((id) => !known.has(id) && admissionFor(c, id).met) : undefined;
+        applyLevelUp(c, branch ?? c.classId);
+      }
+    });
+    report = { won: true, deaths: [], levelUps: [], loot: 40, xpEach: 0 };
+    phase = "aftermath";
+    if (p.get("open")) openSheet(run.state.party[0].id);
     return true;
   }
   if (d !== "enc") return false;

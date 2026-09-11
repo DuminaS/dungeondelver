@@ -1,4 +1,4 @@
-import { AbilityKey, RaceDef, ClassDef, TraitDef, MonsterDef, RaceId, ClassId, WeaponDef } from "./types";
+import { AbilityKey, Character, RaceDef, ClassDef, TraitDef, MonsterDef, RaceId, ClassId, WeaponDef } from "./types";
 
 // ---------------------------------------------------------------- races
 
@@ -154,6 +154,95 @@ export const CLASS_WEIGHTS: [ClassId, number][] = [
   ["barbarian", 10], ["paladin", 8], ["monk", 9], ["bard", 8],
   ["druid", 8], ["sorcerer", 8], ["warlock", 8], ["wizard", 9], ["artificer", 7],
 ];
+
+// ---------------------------------------------------------------- multiclass admission
+
+export interface ReqChip {
+  label: string;
+  met: boolean;
+}
+export interface Admission {
+  met: boolean;
+  chips: ReqChip[];
+}
+
+/**
+ * Taking a FIRST level in a class you don't already have requires meeting
+ * one of a short list of alternative conditions — a stat threshold, a race,
+ * or a trait (DESIGN.md §5.3 "Admission Requirement": stats, skills, and
+ * otherwise; skill-proficiency data doesn't exist on a Character yet, so
+ * this build leans on stats/race/trait). Advancing a class already taken is
+ * always free and isn't gated by this.
+ */
+const ADMISSION: Record<ClassId, (c: Character) => ReqChip[]> = {
+  fighter: (c) => [
+    { label: "STR 13+", met: c.abilities.STR >= 13 },
+    { label: "DEX 13+", met: c.abilities.DEX >= 13 },
+    { label: "Half-Orc, or Ironhide/Giantblood", met: c.raceId === "halforc" || hasTrait(c, "ironhide", "giantblood") },
+  ],
+  rogue: (c) => [
+    { label: "DEX 13+", met: c.abilities.DEX >= 13 },
+    { label: "Elf", met: c.raceId === "elf" },
+    { label: "Fleet, Lucky, or Keen-Eyed", met: hasTrait(c, "fleet", "lucky", "keen_eyed") },
+  ],
+  ranger: (c) => [
+    { label: "DEX 13+ and WIS 11+", met: c.abilities.DEX >= 13 && c.abilities.WIS >= 11 },
+    { label: "Elf", met: c.raceId === "elf" },
+    { label: "Keen-Eyed", met: hasTrait(c, "keen_eyed") },
+  ],
+  cleric: (c) => [
+    { label: "WIS 13+", met: c.abilities.WIS >= 13 },
+    { label: "Dwarf", met: c.raceId === "dwarf" },
+    { label: "Zealot or Heirloom Bearer", met: hasTrait(c, "zealot", "heirloom") },
+  ],
+  barbarian: (c) => [
+    { label: "STR 13+ or CON 15+", met: c.abilities.STR >= 13 || c.abilities.CON >= 15 },
+    { label: "Half-Orc", met: c.raceId === "halforc" },
+    { label: "Ironhide, Giantblood, or Relentless", met: hasTrait(c, "ironhide", "giantblood", "relentless") },
+  ],
+  paladin: (c) => [
+    { label: "STR 13+ or CHA 13+", met: c.abilities.STR >= 13 || c.abilities.CHA >= 13 },
+    { label: "Zealot or Heirloom Bearer", met: hasTrait(c, "zealot", "heirloom") },
+  ],
+  monk: (c) => [
+    { label: "DEX 13+ or WIS 13+", met: c.abilities.DEX >= 13 || c.abilities.WIS >= 13 },
+    { label: "Fleet or Lucky", met: hasTrait(c, "fleet", "lucky") },
+  ],
+  bard: (c) => [
+    { label: "CHA 13+", met: c.abilities.CHA >= 13 },
+    { label: "Lucky or Heirloom Bearer", met: hasTrait(c, "lucky", "heirloom") },
+  ],
+  druid: (c) => [
+    { label: "WIS 13+", met: c.abilities.WIS >= 13 },
+    { label: "Dwarf or Elf", met: c.raceId === "dwarf" || c.raceId === "elf" },
+    { label: "Stoneblood", met: hasTrait(c, "stoneblood") },
+  ],
+  sorcerer: (c) => [
+    { label: "CHA 13+", met: c.abilities.CHA >= 13 },
+    { label: "Lucky", met: hasTrait(c, "lucky") },
+  ],
+  warlock: (c) => [
+    { label: "CHA 13+", met: c.abilities.CHA >= 13 },
+    { label: "Heirloom Bearer", met: hasTrait(c, "heirloom") },
+  ],
+  wizard: (c) => [
+    { label: "INT 13+", met: c.abilities.INT >= 13 },
+    { label: "Keen-Eyed or Lucky", met: hasTrait(c, "keen_eyed", "lucky") },
+  ],
+  artificer: (c) => [
+    { label: "INT 13+", met: c.abilities.INT >= 13 },
+    { label: "Keen-Eyed", met: hasTrait(c, "keen_eyed") },
+  ],
+};
+
+function hasTrait(c: Character, ...ids: string[]): boolean {
+  return ids.some((id) => c.traitIds.includes(id));
+}
+
+export function admissionFor(c: Character, classId: ClassId): Admission {
+  const chips = ADMISSION[classId](c);
+  return { met: chips.some((x) => x.met), chips };
+}
 
 /** feature id -> short label for the action bar / tooltips */
 export const FEATURES: Record<string, { name: string; text: string }> = {

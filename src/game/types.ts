@@ -66,9 +66,14 @@ export interface Character {
   id: string;
   name: string;
   raceId: RaceId;
+  /** primary class — the one with the most levels; kept in sync by recompute() */
   classId: ClassId;
   level: number;
   xp: number;
+  /** one entry per character level, in the order taken: ["fighter","fighter","rogue",...] */
+  levelHistory: ClassId[];
+  /** levels earned but not yet assigned to a class — resolved via a level-up choice */
+  pendingLevelUps: number;
   abilities: Abilities;
   traitIds: string[];
   // derived / mutable

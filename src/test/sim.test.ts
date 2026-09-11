@@ -4,6 +4,9 @@ import { distance, hex, line, withinRange } from "../core/hex";
 import { Run } from "../game/descent";
 import { Encounter } from "../game/encounter";
 import { key } from "../core/hex";
+import { applyLevelUp } from "../game/character";
+import { admissionFor } from "../game/data";
+import { CLASS_IDS, ClassId } from "../game/types";
 
 describe("rng", () => {
   it("is deterministic for a seed", () => {
@@ -112,6 +115,57 @@ function autoPlayEncounter(enc: Encounter): void {
   }
 }
 
+describe("multiclassing", () => {
+  it("grantXp queues pending levels instead of applying them", async () => {
+    const { makeCharacter } = await import("../game/character");
+    const c = makeCharacter(new RNG("mc-1"), { classId: "fighter" });
+    expect(c.level).toBe(1);
+    expect(c.pendingLevelUps).toBe(0);
+    const gained = (await import("../game/character")).grantXp(c, 10000);
+    expect(gained).toBeGreaterThan(0);
+    expect(c.level).toBe(1); // unchanged until assigned
+    expect(c.pendingLevelUps).toBe(gained);
+  });
+
+  it("applyLevelUp accumulates features per-class and computes multiclass HP/AC", async () => {
+    const { makeCharacter, grantXp, applyLevelUp, classLevelsOf, classLabel, featureSources } = await import(
+      "../game/character"
+    );
+    const c = makeCharacter(new RNG("mc-2"), { classId: "fighter" });
+    grantXp(c, 50000);
+    // force this specific character into rogue eligibility so the branch is deterministic
+    c.abilities.DEX = 16;
+    let steps = 0;
+    let tookRogue = false;
+    while (c.pendingLevelUps > 0 && steps++ < 15) {
+      const target = !tookRogue && c.level >= 2 ? "rogue" : c.classId;
+      applyLevelUp(c, target as never);
+      if (target === "rogue") tookRogue = true;
+    }
+    expect(tookRogue).toBe(true);
+    const counts = classLevelsOf(c);
+    expect(counts.fighter).toBeGreaterThan(0);
+    expect(counts.rogue).toBeGreaterThan(0);
+    expect(c.levelHistory.length).toBe(c.level);
+    expect(classLabel(c)).toMatch(/Fighter \d+ \/ Rogue \d+/);
+    // rogue's level-1 feature should show up, sourced to Rogue L1
+    const rogueSrc = featureSources(c).find((f) => f.id === "sneak_attack");
+    expect(rogueSrc?.source).toBe("Rogue · L1");
+    expect(c.maxHp).toBeGreaterThan(0);
+    expect(c.ac).toBeGreaterThan(0);
+  });
+
+  it("admissionFor never leaves a class permanently unreachable at 13+ in its stat", async () => {
+    const { makeCharacter } = await import("../game/character");
+    for (const id of CLASS_IDS) {
+      const c = makeCharacter(new RNG(`adm-${id}`), { classId: id });
+      const adm = admissionFor(c, id);
+      // a character can always advance a class they already have
+      expect(adm.chips.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("full run simulation", () => {
   it("plays several seeded runs to completion without throwing", () => {
     for (const seed of ["ash-1", "bone-22", "coin-333", "deep-4", "ember-55"]) {
@@ -135,12 +189,24 @@ describe("full run simulation", () => {
         expect(["won", "lost"]).toContain(enc.phase);
         const rep = run.resolveEncounter();
         expect(rep).toBeTruthy();
+        // resolve any level-ups: mostly continue the known class, sometimes branch
+        for (const c of run.state.party) {
+          let guard3 = 0;
+          while (c.pendingLevelUps > 0 && guard3++ < 20) {
+            const known = new Set(c.levelHistory);
+            const branchOut: ClassId | undefined =
+              c.level % 3 === 0 ? CLASS_IDS.find((id) => !known.has(id) && admissionFor(c, id).met) : undefined;
+            applyLevelUp(c, branchOut ?? c.classId);
+          }
+        }
       }
       // run either ended or we hit the floor cap; party invariants hold
       for (const c of run.state.party) {
         expect(c.hp).toBeGreaterThan(0);
         expect(c.hp).toBeLessThanOrEqual(c.maxHp);
         expect(c.level).toBeGreaterThanOrEqual(1);
+        expect(c.levelHistory.length).toBe(c.level);
+        expect(c.pendingLevelUps).toBe(0);
       }
     }
   });

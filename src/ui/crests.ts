@@ -1,4 +1,4 @@
-import { icon, roleIcon } from "./icons";
+import { roleIcon } from "./icons";
 
 /**
  * Class crest art ( public/logos/<id>.webp — gold emblem, transparent ).
@@ -19,11 +19,11 @@ export function crestUrl(id: string): string {
  * role glyph underneath as a fallback if the image fails to load
  * (a delegated `error` listener in main.ts adds `.crest-img--dead`).
  */
-export function crest(classId: string, size: "sm" | "md" | "lg" = "sm"): string {
+export function crest(classId: string, size: "xs" | "sm" | "md" | "lg" | "xl" = "sm"): string {
   return `<span class="crest crest--${size}">${roleIcon(classId)}<img class="crest-img" src="${crestUrl(classId)}" alt="" loading="lazy" decoding="async"></span>`;
 }
 
 /** small inline crest for tight rows — falls straight back to the glyph */
 export function crestInline(classId: string): string {
-  return `<span class="crest crest--xs">${icon("melee")}<img class="crest-img" src="${crestUrl(classId)}" alt="" loading="lazy"></span>`;
+  return crest(classId, "xs");
 }

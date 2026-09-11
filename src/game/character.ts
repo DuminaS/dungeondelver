@@ -5,10 +5,13 @@ import {
   ABILITIES,
   Character,
   ClassId,
+  CLASS_IDS,
   mod,
   RaceId,
 } from "./types";
 import {
+  Admission,
+  admissionFor,
   CLASSES,
   CLASS_WEIGHTS,
   makeName,
@@ -74,38 +77,104 @@ function avgHitDie(die: number): number {
   return die / 2 + 1;
 }
 
-/** (re)compute all derived stats from race/class/level/traits */
+/** how many character levels each taken class has, in first-taken order */
+export function classLevelsOf(c: Character): Partial<Record<ClassId, number>> {
+  const out: Partial<Record<ClassId, number>> = {};
+  for (const id of c.levelHistory) out[id] = (out[id] ?? 0) + 1;
+  return out;
+}
+
+/** the class with the most levels (ties go to whichever was taken first) */
+export function primaryClassOf(c: Character): ClassId {
+  const counts = classLevelsOf(c);
+  let best: ClassId = c.levelHistory[0] ?? c.classId;
+  let bestN = 0;
+  for (const id of c.levelHistory) {
+    const n = counts[id] ?? 0;
+    if (n > bestN) {
+      bestN = n;
+      best = id;
+    }
+  }
+  return best;
+}
+
+/** classes this character could take their next level in: known ones (free) + eligible new ones */
+export function eligibleClasses(c: Character): { classId: ClassId; known: boolean; admission: Admission }[] {
+  const counts = classLevelsOf(c);
+  return CLASS_IDS.filter((id) => (counts[id] ?? 0) > 0 || admissionFor(c, id).met).map((id) => ({
+    classId: id,
+    known: (counts[id] ?? 0) > 0,
+    admission: admissionFor(c, id),
+  }));
+}
+
+/** "Fighter" for a single-classer, "Fighter / Rogue" once multiclassed */
+export function classHeaderLabel(c: Character): string {
+  const order = [...new Set(c.levelHistory)];
+  return order.length <= 1 ? CLASSES[c.classId].name : order.map((id) => CLASSES[id].name).join(" / ");
+}
+
+/** "Fighter 3 / Rogue 2" — full level split */
+export function classLabel(c: Character): string {
+  const counts = classLevelsOf(c);
+  const order = [...new Set(c.levelHistory)];
+  return order.map((id) => `${CLASSES[id].name} ${counts[id]}`).join(" / ");
+}
+
+/** (re)compute all derived stats from race/class-levels/traits */
 export function recompute(c: Character): void {
   const race = RACES[c.raceId];
-  const cls = CLASSES[c.classId];
+  if (c.levelHistory.length === 0) c.levelHistory = [c.classId];
+  c.level = c.levelHistory.length;
+  c.classId = primaryClassOf(c);
+  const primaryCls = CLASSES[c.classId];
 
-  // base weapon from class unless a trait replaced it (heirloom); keep name if renamed
-  const weapon = c.weapon ?? { ...cls.weapon };
+  // base weapon from the starting class unless a trait replaced it; never reassigned after
+  const weapon = c.weapon ?? { ...primaryCls.weapon };
   c.weapon = weapon;
 
-  // features up to current level
+  // features accumulate per class, gated by THAT class's own level (5e multiclass rule) —
+  // a Fighter 5 / Wizard 1 has Extra Attack but only a Wizard's 1st-level features.
   c.featureIds = [];
-  for (let l = 1; l <= c.level; l++) {
-    for (const f of cls.features[l] ?? []) c.featureIds.push(f);
+  const seen: Partial<Record<ClassId, number>> = {};
+  for (const clsId of c.levelHistory) {
+    seen[clsId] = (seen[clsId] ?? 0) + 1;
+    for (const f of CLASSES[clsId].features[seen[clsId]!] ?? []) c.featureIds.push(f);
   }
   for (const t of race.traits) if (!c.featureIds.includes(t)) c.featureIds.push(t);
 
+  // HP: only the very first character level rolls max; every level after — even a
+  // first level in a brand new class — uses that class's average (5e multiclass rule).
   const conMod = mod(c.abilities.CON);
-  let maxHp = cls.hitDie + conMod;
-  for (let l = 2; l <= c.level; l++) maxHp += Math.max(1, Math.round(avgHitDie(cls.hitDie) + conMod));
+  let maxHp = 0;
+  c.levelHistory.forEach((clsId, i) => {
+    const die = CLASSES[clsId].hitDie;
+    maxHp += i === 0 ? die + conMod : Math.max(1, Math.round(avgHitDie(die) + conMod));
+  });
   if (c.featureIds.includes("fighter_grit") || c.featureIds.includes("barb_toughness")) maxHp += 2 * c.level;
   c.maxHp = Math.max(1, maxHp);
 
+  // AC: the best armour model you're proficient in across every class you've taken
   const dexMod = mod(c.abilities.DEX);
   const wisMod = mod(c.abilities.WIS);
-  if (c.classId === "monk") c.ac = 10 + dexMod + wisMod;
-  else if (c.classId === "barbarian") c.ac = 10 + dexMod + conMod;
-  else c.ac = 10 + Math.min(dexMod, cls.dexCap) + cls.baseArmor;
+  let ac = 10 + dexMod;
+  for (const clsId of new Set(c.levelHistory)) {
+    const cls = CLASSES[clsId];
+    const option =
+      clsId === "monk"
+        ? 10 + dexMod + wisMod
+        : clsId === "barbarian"
+          ? 10 + dexMod + conMod
+          : 10 + Math.min(dexMod, cls.dexCap) + cls.baseArmor;
+    ac = Math.max(ac, option);
+  }
+  c.ac = ac;
   if (c.featureIds.includes("barkskin")) c.ac += 1;
   if (c.featureIds.includes("infused_armor")) c.ac += 1;
 
   c.speed = race.speed;
-  c.skills = [...cls.skills];
+  c.skills = [...new Set(c.levelHistory.flatMap((id) => CLASSES[id].skills))];
 
   // static trait effects
   for (const id of c.traitIds) {
@@ -155,6 +224,8 @@ export function makeCharacter(rng: RNG, opts?: { classId?: ClassId; raceId?: Rac
     classId,
     level: 1,
     xp: 0,
+    levelHistory: [classId],
+    pendingLevelUps: 0,
     abilities,
     traitIds,
     maxHp: 1,
@@ -173,26 +244,65 @@ export function makeCharacter(rng: RNG, opts?: { classId?: ClassId; raceId?: Rac
   return c;
 }
 
-/** grant xp; returns number of levels gained */
+/**
+ * Grant xp. Levels earned queue up as `pendingLevelUps` rather than applying
+ * immediately — the player assigns each one to a class via applyLevelUp()
+ * (the Aftermath screen's "choose advancement" step). Returns levels earned.
+ */
 export function grantXp(c: Character, amount: number): number {
   c.xp += amount;
-  let gained = 0;
   const cap = Math.min(LEVEL_CAP, RUN_CONFIG.levelCap);
-  while (c.level < cap && c.xp >= xpForLevel(c.level + 1)) {
-    c.level += 1;
-    gained += 1;
+  let gained = 0;
+  let committed = c.levelHistory.length + c.pendingLevelUps;
+  while (committed < cap && c.xp >= xpForLevel(committed + 1)) {
+    committed++;
+    gained++;
   }
-  if (gained) {
-    const before = c.hp;
-    recompute(c);
-    // level-up second wind: heal half the max, min the HP gained
-    c.hp = Math.min(c.maxHp, Math.max(before + Math.ceil(c.maxHp / 2), before));
-  }
+  c.pendingLevelUps += gained;
   return gained;
+}
+
+/** resolve one pending level-up into the given class. Returns false if none pending. */
+export function applyLevelUp(c: Character, classId: ClassId): boolean {
+  if (c.pendingLevelUps <= 0) return false;
+  c.levelHistory.push(classId);
+  c.pendingLevelUps -= 1;
+  const before = c.hp;
+  recompute(c);
+  // a fresh level always feels like a second wind: heal to at least half of what you gained
+  c.hp = Math.min(c.maxHp, Math.max(before + Math.ceil(c.maxHp / 2), before));
+  return true;
 }
 
 export function xpValue(monsterTier: number, monsterHp: number): number {
   return 20 + monsterTier * 25 + Math.floor(monsterHp / 2);
+}
+
+export interface FeatureSource {
+  id: string;
+  source: string;
+}
+
+/** every class feature this character has, tagged with which class/level granted it */
+export function featureSources(c: Character): FeatureSource[] {
+  const out: FeatureSource[] = [];
+  const known = new Set<string>();
+  const seen: Partial<Record<ClassId, number>> = {};
+  for (const clsId of c.levelHistory) {
+    seen[clsId] = (seen[clsId] ?? 0) + 1;
+    for (const f of CLASSES[clsId].features[seen[clsId]!] ?? []) {
+      if (known.has(f)) continue;
+      known.add(f);
+      out.push({ id: f, source: `${CLASSES[clsId].name} · L${seen[clsId]}` });
+    }
+  }
+  const race = RACES[c.raceId];
+  for (const t of race.traits) {
+    if (known.has(t)) continue;
+    known.add(t);
+    out.push({ id: t, source: `${race.name} (race)` });
+  }
+  return out;
 }
 
 export function statLine(c: Character): string {
@@ -207,5 +317,5 @@ export function epitaphFor(c: Character, cause: string): string {
   if (t?.id === "bloodscent") return "Chased the wounded thing one hex too far.";
   if (cause.includes("acid")) return "Dissolved on Deep " + c.floorsSurvived + ".";
   if (cause.includes("fell") || cause.includes("chasm")) return "The Pit took what it was owed.";
-  return `${CLASSES[c.classId].name}. ${c.kills} kills. Deep ${c.floorsSurvived}.`;
+  return `${classLabel(c)}. ${c.kills} kills. Deep ${c.floorsSurvived}.`;
 }

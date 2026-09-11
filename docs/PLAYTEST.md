@@ -21,6 +21,8 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 | **Tap-to-confirm targeting** — a first tap on the board *arms* the move / attack / feature / AOE (highlighted, with a hit-chance or blast-count readout); a second tap on it, the **Confirm** button, or <kbd>Enter</kbd> commits; <kbd>Esc</kbd> or ✕ cancels. Built for touch | ✅ |
 | **AOE abilities** — Fighter Cleave, Barbarian Sweep, Ranger Volley, Bard Thunderwave, Wizard/Sorcerer Burning Hands (targeted burst, hits allies too), Cleric Spirit Guardians (passive aura) | ✅ |
 | 4 races (Human/Dwarf/Elf/Half-Orc); **all 13 classes** (Fighter, Rogue, Ranger, Cleric, Barbarian, Paladin, Monk, Bard, Druid, Sorcerer, Warlock, Wizard, Artificer) to Lv 5, each with a starting weapon + 2–3 signature abilities — simplified kits, not full spell lists | ✅ |
+| **Real multiclassing** — XP earned queues as a level-up choice, resolved in the Aftermath screen: advance a class you already have (free) or branch into a new one if you meet its Admission Requirement (a stat threshold / race / trait chip, shown met or unmet). Features, HP and AC all accumulate correctly across classes (5e multiclass rules) | ✅ |
+| **Character sheet** — click any warband card (or the small ⌖ on a draft-pool card) to open a slide-in dossier: header, combat bar, ability cards (class-primary stats glow gold), skills, clickable trait/feature cards tagged by source (class+level / race / trait), a Class Path lane per class taken, and a "Multiclass paths" panel showing every other class with its requirement chips | ✅ |
 | ~11 traits (boons/banes/quirks) + racial passives | ✅ |
 | Action economy: Move / Action / Bonus / Reaction; Dash, Disengage, Dodge, **Shove** (into chasms/hazards), opportunity attacks | ✅ |
 | Class verbs: Second Wind, Power Attack, Action Surge, Sneak Attack, Cunning Action, Hunter's Mark, Colossus Slayer, Cure Wounds, Bless, Extra Attack | ✅ |
@@ -36,7 +38,7 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 
 ## What's out (don't file bugs for these)
 
-Charters · Covenants · multiclass / subclasses / feats · a real gear/inventory system (Smithy gives flat bonuses) · injuries persisting between runs · bosses · Rest/Market/Shrine/Vault *floors* (the Vault *building* is in) · floor modifiers doing anything · a real rewarded-ad SDK · sound · animation beyond redraws.
+Charters · Covenants · subclasses / feats · a real gear/inventory system (Smithy gives flat bonuses) · injuries persisting between runs · bosses · Rest/Market/Shrine/Vault *floors* (the Vault *building* is in) · floor modifiers doing anything · a real rewarded-ad SDK · sound · animation beyond redraws.
 
 The interface language (palette, icon set, label map, board layers) is documented in [UI.md](UI.md).
 

@@ -235,7 +235,7 @@ export class Run {
       const award = Math.round((totalKillXp * myKills) / totalKills) + objShare;
       const gained = grantXp(c, award);
       report.xpEach = objShare;
-      if (gained > 0) report.levelUps.push({ name: c.name, to: c.level });
+      if (gained > 0) report.levelUps.push({ name: c.name, count: gained });
     }
 
     // loot
@@ -276,7 +276,7 @@ export class Run {
 export interface EncounterReport {
   won: boolean;
   deaths: string[];
-  levelUps: { name: string; to: number }[];
+  levelUps: { name: string; count: number }[];
   loot: number;
   xpEach: number;
 }
