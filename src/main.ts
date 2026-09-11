@@ -10,6 +10,7 @@ import {
   featureSources,
   FeatureSource,
   grantXp,
+  makeCharacter,
   primaryClassOf,
 } from "./game/character";
 import { RUN_CONFIG } from "./game/config";
@@ -18,6 +19,8 @@ import {
   Guild,
   applyGuildToConfig,
   buildingLevel,
+  checkDisbandment,
+  disbandAndRebuild,
   doUpgrade,
   foundGuild,
   loadGuild,
@@ -27,18 +30,20 @@ import {
   upgradeBlocked,
   upgradeCost,
 } from "./game/guild";
-import { ClubStanding, divisionOf, playerRank, recordFixture, standings } from "./game/league";
+import { ClubStanding, DIVISIONS, PROMOTE_SLOTS, RELEGATE_SLOTS, SEASON_LENGTH, divisionOf, playerRank, recordFixture, standings } from "./game/league";
+import { MarketRecruit, rollMarket } from "./game/recruitment";
 import { Run, EncounterReport } from "./game/descent";
 import { Encounter } from "./game/encounter";
 import { BoardView } from "./ui/render";
 import { CONDITION_ICON, icon, logStyle, stat } from "./ui/icons";
 import { crest } from "./ui/crests";
 import { classAccent } from "./ui/classColor";
+import { RNG } from "./core/rng";
 
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
 
-type Phase = "found" | "settlement" | "standings" | "draft" | "descent" | "encounter" | "aftermath" | "debrief";
+type Phase = "found" | "settlement" | "standings" | "market" | "disband" | "draft" | "descent" | "encounter" | "aftermath" | "debrief";
 
 const app = document.getElementById("app")!;
 let guild: Guild = loadGuild();
@@ -48,8 +53,22 @@ let run: Run | null = null;
 let enc: Encounter | null = null;
 let board: BoardView | null = null;
 let report: EncounterReport | null = null;
-let fixtureResult: { cleared: boolean; gross: number; fee: number; net: number } | null = null;
+let fixtureResult: {
+  cleared: boolean;
+  gross: number;
+  fee: number;
+  net: number;
+  seasonEnded: boolean;
+  promoted: boolean;
+  relegated: boolean;
+  newDivisionId: string;
+  divisionName: string;
+  feePct: number;
+} | null = null;
 let standingsReturnPhase: Phase = "settlement";
+let pendingDisbandReason: string | null = null;
+let marketRng = 0;
+let marketPool: MarketRecruit[] = [];
 
 // ---- encounter interaction ----
 type Armed =
@@ -77,8 +96,13 @@ document.body.appendChild(sheetRoot);
 let sheetCharId: string | null = null;
 
 function findCharacter(id: string): Character | null {
-  if (!run) return null;
-  return run.state.party.find((c) => c.id === id) ?? run.pool.find((c) => c.id === id) ?? null;
+  return (
+    run?.state.party.find((c) => c.id === id) ??
+    run?.pool.find((c) => c.id === id) ??
+    guild.roster.find((c) => c.id === id) ??
+    marketPool.find((m) => m.character.id === id)?.character ??
+    null
+  );
 }
 function openSheet(id: string): void {
   sheetCharId = id;
@@ -131,7 +155,7 @@ function weaponLabel(c: Character): string {
   return `${c.weapon.dice}${c.weapon.ranged ? `·r${c.weapon.range}` : ""}`;
 }
 
-function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean } = {}): string {
+function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean; footer?: string } = {}): string {
   const cls = CLASSES[c.classId];
   const race = RACES[c.raceId];
   const accent = classAccent(primaryClassOf(c));
@@ -158,6 +182,7 @@ function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean } =
     </div>
     <div class="attrs">${ABILITIES.map((k) => attrChip(k, c.abilities[k], statAccentFor(c, k))).join("")}</div>
     ${traits ? `<div class="taglist">${traits}</div>` : `<div class="sub">— no traits —</div>`}
+    ${opts.footer ?? ""}
   </div>`;
 }
 
@@ -300,6 +325,8 @@ function render(): void {
     found: renderFound,
     settlement: renderSettlement,
     standings: renderStandings,
+    market: renderMarket,
+    disband: renderDisband,
     draft: renderDraft,
     descent: renderDescent,
     encounter: renderEncounter,
@@ -382,18 +409,28 @@ function renderSettlement(): void {
 
     <div class="panel league-strip" id="league-strip">
       <div>
-        <div class="eyebrow">${esc(div.name)} · fee ${Math.round(div.feePct * 100)}%</div>
-        <div class="league-strip__rank">Rank <b>#${rank}</b> of ${g.league.clubs.length}</div>
+        <div class="eyebrow">${esc(div.name)} · fee ${Math.round(div.feePct * 100)}% · season ${g.league.season}</div>
+        <div class="league-strip__rank">Rank <b>#${rank}</b> of ${standings(g.league, div.id).length}</div>
       </div>
-      <button id="view-standings">${icon("star")} League table</button>
+      <div class="row" style="gap:8px">
+        <button id="view-market">${icon("loot")} Recruitment market</button>
+        <button id="view-standings">${icon("star")} League table</button>
+      </div>
     </div>
+
+    <h2>Roster · ${g.roster.length}/${RUN_CONFIG.partySize}</h2>
+    ${
+      g.roster.length
+        ? `<div class="cards">${g.roster.map((c) => characterCard(c, { sheet: true })).join("")}</div>`
+        : `<p class="sub">No one under contract yet — the draft will sign your first squad when you descend.</p>`
+    }
 
     <div class="pit-panel" id="pit">
       <div class="pit-void"></div>
       <div class="pit-copy">
         <div class="eyebrow">The Descent</div>
         <h2 style="color:var(--gold);font-size:22px">Assemble an expedition</h2>
-        <p class="sub">Draft ${RUN_CONFIG.partySize} from a pool of ${RUN_CONFIG.draftPool} · level cap ${RUN_CONFIG.levelCap}${RUN_CONFIG.gearTier ? " · Guild arms issued" : ""}</p>
+        <p class="sub">${g.roster.length >= RUN_CONFIG.partySize ? `Full roster of ${RUN_CONFIG.partySize} ready to go` : `${g.roster.length} signed · draft ${RUN_CONFIG.partySize - g.roster.length} more from a pool of ${RUN_CONFIG.draftPool}`} · level cap ${RUN_CONFIG.levelCap}${RUN_CONFIG.gearTier ? " · Guild arms issued" : ""}</p>
         <button class="primary big" id="descend-btn">${icon("extract")} Into the Pit</button>
       </div>
     </div>
@@ -425,6 +462,12 @@ function renderSettlement(): void {
     phase = "standings";
     render();
   });
+  document.getElementById("view-market")!.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!marketPool.length) rerollMarket();
+    phase = "market";
+    render();
+  });
   app.querySelectorAll<HTMLElement>("[data-up]").forEach((b) => {
     b.addEventListener("click", () => {
       if (doUpgrade(guild, b.dataset.up as never)) {
@@ -437,7 +480,7 @@ function renderSettlement(): void {
 
 function startRun(): void {
   applyGuildToConfig(guild);
-  run = new Run(undefined, guild.name ?? "The Gordion Pit");
+  run = new Run(undefined, guild.name ?? "The Gordion Pit", guild.roster);
   phase = "draft";
   render();
 }
@@ -451,15 +494,23 @@ function formPips(c: ClubStanding): string {
 
 function renderStandings(): void {
   const div = divisionOf(guild.league);
-  const table = standings(guild.league);
+  const table = standings(guild.league, div.id);
   const rank = playerRank(guild.league);
+  const elapsedThisSeason = guild.league.round - (guild.league.season - 1) * SEASON_LENGTH;
+  const fixturesLeft = SEASON_LENGTH - elapsedThisSeason;
 
   app.innerHTML = `
   <div class="wrap col">
     <div class="spread">
-      <div><div class="eyebrow">The League</div><h1>${esc(div.name)}</h1></div>
-      <span class="sub">Division ${div.tier} of ${4} · league fee ${Math.round(div.feePct * 100)}% of gold earned per fixture</span>
+      <div><div class="eyebrow">The League — Season ${guild.league.season}</div><h1>${esc(div.name)}</h1></div>
+      <span class="sub">Division ${div.tier} of ${DIVISIONS.length} · fee ${Math.round(div.feePct * 100)}% of gold earned per fixture · ${fixturesLeft} fixture${fixturesLeft === 1 ? "" : "s"} left this season</span>
     </div>
+
+    <div class="ladder">${DIVISIONS.map(
+      (d) => `<span class="ladder__rung ${d.id === div.id ? "ladder__rung--here" : ""}">${esc(d.name)}</span>`,
+    ).join(`<span class="ladder__arrow">${icon("chevron")}</span>`)}</div>
+
+    <p class="sub">Top ${PROMOTE_SLOTS} of the table promote at season's end; bottom ${RELEGATE_SLOTS} relegate — except at the very top or bottom of the pyramid.</p>
 
     <div class="panel statrow">
       ${stat("star", `#${rank} of ${table.length}`, rank <= 2 ? "good" : rank >= table.length - 1 ? "bad" : "", "your rank")}
@@ -504,26 +555,168 @@ function renderStandings(): void {
   });
 }
 
+// ---------------------------------------------------------------- recruitment market
+
+function rerollMarket(): void {
+  marketRng += 1;
+  marketPool = rollMarket(new RNG(`market:${guild.founded}:${marketRng}`));
+}
+
+function riskTone(risk: MarketRecruit["risk"]): string {
+  return risk === "Low" ? "good" : risk === "Medium" ? "warn" : "bad";
+}
+
+function renderMarket(): void {
+  const g = guild;
+  const full = g.roster.length >= RUN_CONFIG.partySize;
+
+  app.innerHTML = `
+  <div class="wrap col">
+    <div class="spread">
+      <div><div class="eyebrow">${esc(g.name ?? "The Gordion Pit")}</div><h1>Recruitment Market</h1></div>
+      <div class="statrow">${stat("loot", `${g.gold}g`, "gold", "treasury")}</div>
+    </div>
+    <p class="sub">Draft picks are free but random. Signing here costs gold, but you choose exactly who — the fastest way to replace a fallen chaindiver or chase a role you're missing.</p>
+
+    <h2>Roster · ${g.roster.length}/${RUN_CONFIG.partySize}</h2>
+    ${
+      g.roster.length
+        ? `<div class="cards" id="roster-cards">${g.roster
+            .map((c) =>
+              characterCard(c, {
+                footer: `<div class="row" style="justify-content:flex-end"><button class="danger" data-release="${c.id}">${icon("x")} Release</button></div>`,
+              }),
+            )
+            .join("")}</div>`
+        : `<p class="sub">No one under contract yet.</p>`
+    }
+
+    <div class="spread">
+      <h2>Prospects</h2>
+      <button id="scout">${icon("round")} Scout again</button>
+    </div>
+    ${full ? `<p class="sub">${icon("threat")} Roster full — release someone before signing another.</p>` : ""}
+    <div class="cards" id="market-cards">${marketPool
+      .map((m) => {
+        const affordable = g.gold >= m.price && !full;
+        return characterCard(m.character, {
+          footer: `
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <span class="tag ${riskTone(m.risk) === "good" ? "boon" : riskTone(m.risk) === "bad" ? "bane" : "quirk"}">${esc(m.risk)} risk</span>
+            <button class="${affordable ? "primary" : ""}" data-sign="${m.character.id}" ${affordable ? "" : "disabled"}>${icon("loot")} Sign — ${m.price}g</button>
+          </div>`,
+        });
+      })
+      .join("")}</div>
+
+    <div class="row"><button class="primary" id="market-back">${icon("chevron")} Back to the Pit</button></div>
+  </div>`;
+
+  document.getElementById("roster-cards")?.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("[data-release]") as HTMLElement | null;
+    if (!btn) return;
+    const id = btn.dataset.release!;
+    g.roster = g.roster.filter((c) => c.id !== id);
+    saveGuild(g);
+    flashToast("Released. Their contract's torn up.");
+    renderMarket();
+  });
+  document.getElementById("market-cards")?.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("[data-sign]") as HTMLElement | null;
+    if (!btn) return;
+    const id = btn.dataset.sign!;
+    const m = marketPool.find((x) => x.character.id === id);
+    if (!m || g.gold < m.price || g.roster.length >= RUN_CONFIG.partySize) return;
+    g.gold -= m.price;
+    g.roster.push(m.character);
+    marketPool = marketPool.filter((x) => x.character.id !== id);
+    saveGuild(g);
+    flashToast(`${m.character.name} signed for ${m.price}g.`);
+    renderMarket();
+  });
+  document.getElementById("scout")!.addEventListener("click", () => {
+    rerollMarket();
+    renderMarket();
+  });
+  document.getElementById("market-back")!.addEventListener("click", () => {
+    phase = "settlement";
+    render();
+  });
+}
+
+// ---------------------------------------------------------------- disbandment
+
+let rebuildSigil = SIGILS[0];
+function renderDisband(): void {
+  const g = guild;
+  const player = g.league.clubs.find((c) => c.isPlayer)!;
+  app.innerHTML = `
+  <div class="wrap center col">
+    <div><div class="eyebrow">The club collapses</div><h1>${esc(g.name ?? "The Gordion Pit")} is finished</h1></div>
+    <div class="panel col" style="border-color:var(--bad)">
+      <p class="log__line t-bad">${icon("skull")}<span>${esc(pendingDisbandReason ?? "The club can't continue.")}</span></p>
+      <div class="statrow">
+        ${stat("check", `Deep ${g.bestDepth}`, "", "deepest ever reached")}
+        ${stat("star", player.careerClears, "", "career clears")}
+        ${stat("skull", g.graveyard.length, "bad", "names in the Hall of the Dead")}
+      </div>
+      <p class="sub">The roster disbands and most of the treasury is lost. The Ledger — records, the dead, past runs — survives; the club drops to ${esc(DIVISIONS[0].name)} and starts its league record fresh.</p>
+    </div>
+
+    <div class="panel col">
+      <span class="eyebrow">Refound under a new name</span>
+      <input type="text" id="rebuild-name" maxlength="28" placeholder="${esc(g.name ?? "The Gordion Pit")}" />
+      <span class="eyebrow">Sigil</span>
+      <div class="sigils" id="rebuild-sigils">${SIGILS.map((s) => `<button class="sigil ${s === rebuildSigil ? "sigil--on" : ""}" data-s="${s}">${s}</button>`).join("")}</div>
+      <div class="row"><button class="primary" id="rebuild">${icon("check")} Rebuild</button></div>
+    </div>
+  </div>`;
+
+  document.getElementById("rebuild-sigils")!.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest("[data-s]") as HTMLElement | null;
+    if (!b) return;
+    rebuildSigil = b.dataset.s!;
+    renderDisband();
+  });
+  document.getElementById("rebuild")!.addEventListener("click", () => {
+    const name = (document.getElementById("rebuild-name") as HTMLInputElement).value.trim();
+    disbandAndRebuild(g, name || g.name || "The Gordion Pit");
+    g.sigil = rebuildSigil;
+    saveGuild(g);
+    applyGuildToConfig(g);
+    pendingDisbandReason = null;
+    phase = "settlement";
+    render();
+  });
+}
+
 // ---------------------------------------------------------------- draft
 
 function renderDraft(): void {
   if (!run) return;
   const need = run.partySize - run.state.party.length;
+  const signed = run.state.party.length;
   app.innerHTML = `
   <div class="wrap col">
     <div class="spread">
-      <div><div class="eyebrow">Draft — pick ${need} more of ${run.partySize}</div><h1>Your warband</h1></div>
+      <div><div class="eyebrow">${need > 0 ? `Draft — sign ${need} more of ${run.partySize}` : "Roster confirmed"}</div><h1>Your club</h1></div>
       <span class="sub">seed <span class="kbd">${esc(run.state.seed)}</span></span>
     </div>
-    <p class="sub">Every pick re-rolls the whole pool. You can't wait for a card to come back.</p>
+    ${signed > 0 ? `<p class="sub">${signed} already under contract from last time out — free, no need to redraft them.</p>` : ""}
+    ${need > 0 ? `<p class="sub">Every pick signs them to the club for good (and re-rolls the whole pool — you can't wait for a card to come back). Want a specific prospect instead? Sign one from the Recruitment Market back at the Pit.</p>` : ""}
 
+    ${
+      need > 0
+        ? `
     <div class="row">
       <button id="mull" ${run.mulligansLeft > 0 ? "" : "disabled"}>${icon("round")} Mulligan (${run.mulligansLeft})</button>
       <button id="adroll" title="A rewarded ad in the shipped game — free here">${icon("star")} Reroll — watch ad</button>
     </div>
 
     <h2>Pool</h2>
-    <div class="cards" id="pool">${run.pool.map((c) => characterCard(c, { pick: true })).join("")}</div>
+    <div class="cards" id="pool">${run.pool.map((c) => characterCard(c, { pick: true })).join("")}</div>`
+        : ""
+    }
 
     <h2>Warband · ${run.state.party.length}/${run.partySize}</h2>
     <div class="cards">${run.state.party.map((c) => characterCard(c, { sheet: true })).join("") || '<p class="sub">— empty —</p>'}</div>
@@ -531,7 +724,7 @@ function renderDraft(): void {
     ${run.draftComplete ? `<div class="row"><button class="primary" id="descend">${icon("chevron")} Descend into the Pit</button></div>` : ""}
   </div>`;
 
-  document.getElementById("pool")!.addEventListener("click", (e) => {
+  document.getElementById("pool")?.addEventListener("click", (e) => {
     const el = (e.target as HTMLElement).closest(".ucard") as HTMLElement | null;
     if (!el || !run) return;
     run.pickRecruit(el.dataset.id!);
@@ -1214,19 +1407,34 @@ function finishRun(): void {
   const st = run.state;
   const outcome = st.outcome ?? "wipe";
   const cleared = outcome === "retired";
-  const { fee, net } = recordFixture(guild.league, {
+  // survivors carry over: healed up and kept on the books for next time
+  guild.roster = st.party.map((c) => ({ ...c, hp: c.maxHp }));
+  const fixtureDiv = divisionOf(guild.league); // the division the fee was actually charged in
+  const { fee, net, seasonEnded, promoted, relegated, newDivisionId } = recordFixture(guild.league, {
     cleared,
     floorsCleared: st.depth,
     goldEarned: st.bankedGold,
-    squadHealth: st.party.length,
+    squadHealth: guild.roster.length,
     reputation: guild.renown,
   });
-  fixtureResult = { cleared, gross: st.bankedGold, fee, net };
+  fixtureResult = {
+    cleared,
+    gross: st.bankedGold,
+    fee,
+    net,
+    seasonEnded,
+    promoted,
+    relegated,
+    newDivisionId,
+    divisionName: fixtureDiv.name,
+    feePct: fixtureDiv.feePct,
+  };
   recordRun(
     guild,
     { seed: st.seed, depth: st.depth, outcome, banked: st.bankedGold, fee, net, party: st.party.map((c) => c.name) },
     st.graveyard,
   );
+  pendingDisbandReason = checkDisbandment(guild);
   applyGuildToConfig(guild);
   teardownEncounter();
   phase = "debrief";
@@ -1255,15 +1463,25 @@ function renderDebrief(): void {
 
     ${fx ? `
     <div class="panel col league-fixture">
-      <div class="eyebrow">${esc(div.name)} — fixture result</div>
+      <div class="eyebrow">${esc(fx.divisionName)} — fixture result</div>
       <div class="statrow">
         ${stat(fx.cleared ? "check" : "skull", fx.cleared ? "CLEAR" : "LOSS", fx.cleared ? "good" : "bad", "fixture outcome")}
         ${stat("loot", `${fx.gross}g`, "gold", "gross earned")}
-        ${stat("loot", `−${fx.fee}g`, "bad", `league fee (${Math.round(div.feePct * 100)}%)`)}
+        ${stat("loot", `−${fx.fee}g`, "bad", `league fee (${Math.round(fx.feePct * 100)}%)`)}
         ${stat("check", `+${fx.net}g`, "good", "net to treasury")}
       </div>
-      <p class="sub">Treasury now <b>${guild.gold}g</b>. League rank: <b>#${rank}</b> of ${guild.league.clubs.length}.</p>
+      <p class="sub">Treasury now <b>${guild.gold}g</b>. League rank: <b>#${rank}</b> of ${standings(guild.league, div.id).length} in ${esc(div.name)}.</p>
     </div>` : ""}
+
+    ${
+      fx?.promoted
+        ? `<div class="panel col" style="border-color:var(--good)"><p class="log__line t-good">${icon("star")}<span>Season ${guild.league.season - 1} done — <b>promoted</b> to ${esc(div.name)}. The fee's steeper up here.</span></p></div>`
+        : fx?.relegated
+          ? `<div class="panel col" style="border-color:var(--bad)"><p class="log__line t-bad">${icon("skull")}<span>Season ${guild.league.season - 1} done — <b>relegated</b> to ${esc(div.name)}.</span></p></div>`
+          : fx?.seasonEnded
+            ? `<div class="panel col"><p class="sub">${icon("round")} Season ${guild.league.season - 1} done — the table's reset, you're holding your spot in ${esc(div.name)}.</p></div>`
+            : ""
+    }
 
     <div class="row">
       <button class="primary" id="home">${icon("extract")} Back to the Pit</button>
@@ -1275,7 +1493,7 @@ function renderDebrief(): void {
     enc = null;
     report = null;
     fixtureResult = null;
-    phase = "settlement";
+    phase = pendingDisbandReason ? "disband" : "settlement";
     render();
   });
   document.getElementById("debrief-standings")!.addEventListener("click", () => {
@@ -1304,7 +1522,35 @@ function maybeDevJump(): boolean {
     guild.gold = 9000;
     const player0 = guild.league.clubs.find((c) => c.isPlayer);
     if (player0) player0.name = guild.name;
+    if (!guild.roster.length && p.get("empty") === null) {
+      const rng = new RNG("dev-settle-roster");
+      guild.roster = ["fighter", "cleric", "rogue"].map((cid) => makeCharacter(rng, { classId: cid as ClassId }));
+    }
     phase = "settlement";
+    return true;
+  }
+  if (d === "market") {
+    guild.name = guild.name ?? "Dev Pit";
+    guild.gold = 900;
+    applyGuildToConfig(guild);
+    const playerM = guild.league.clubs.find((c) => c.isPlayer);
+    if (playerM) playerM.name = guild.name;
+    if (!guild.roster.length) {
+      const rng = new RNG("dev-market-roster");
+      guild.roster = ["fighter", "cleric"].map((cid) => makeCharacter(rng, { classId: cid as ClassId }));
+    }
+    rerollMarket();
+    phase = "market";
+    return true;
+  }
+  if (d === "disband") {
+    guild.name = guild.name ?? "Dev Pit";
+    guild.gold = 12;
+    guild.bestDepth = 6;
+    guild.graveyard.push({ name: "Sair the Fourth", epitaph: "Chased the wounded thing one hex too far.", depth: 4, cause: "slain by The Warden" });
+    guild.roster = [];
+    pendingDisbandReason = "The roster was wiped out — there's no one left to field.";
+    phase = "disband";
     return true;
   }
   if (d === "standings") {
@@ -1320,6 +1566,24 @@ function maybeDevJump(): boolean {
     applyGuildToConfig(guild);
     const player2 = guild.league.clubs.find((c) => c.isPlayer);
     if (player2) player2.name = guild.name;
+    if (p.get("releg")) {
+      // climb a tier first so there's somewhere to fall from
+      for (let i = 0; i < SEASON_LENGTH; i++) {
+        recordFixture(guild.league, { cleared: true, floorsCleared: 20, goldEarned: 999999, squadHealth: 3, reputation: 0 });
+      }
+    }
+    if (p.get("promo") || p.get("releg")) {
+      const good = !!p.get("promo");
+      for (let i = 0; i < SEASON_LENGTH - 1; i++) {
+        recordFixture(guild.league, {
+          cleared: good,
+          floorsCleared: good ? 20 : 0,
+          goldEarned: good ? 999999 : 0,
+          squadHealth: 3,
+          reputation: 0,
+        });
+      }
+    }
     run = new Run(p.get("seed") || "debrief-seed", guild.name);
     while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
     run.beginDescent();

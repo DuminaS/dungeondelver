@@ -406,6 +406,15 @@ table.standings .rank-bad  { color: var(--bad); }
 .formpip--w { background: rgba(134,167,88,0.22); color: var(--good); }
 .formpip--l { background: rgba(176,65,59,0.22); color: var(--bad); }
 
+.ladder { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+.ladder__rung {
+  font: 600 11px/1 var(--font-mono); letter-spacing: 0.03em; color: var(--ink-faint);
+  padding: 6px 10px; border: 1px solid var(--iron); border-radius: 999px; background: var(--stone);
+}
+.ladder__rung--here { color: var(--bg); background: var(--gold); border-color: var(--gold); font-weight: 700; }
+.ladder__arrow { color: var(--ink-faint); display: inline-flex; }
+.ladder__arrow .ic { width: 13px; height: 13px; transform: rotate(-90deg); }
+
 .buildings { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .bcard {
   background: var(--stone); border: 1px solid var(--iron); border-radius: var(--r);

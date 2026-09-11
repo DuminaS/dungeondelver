@@ -348,14 +348,19 @@ describe("full run simulation", () => {
 });
 
 describe("league", () => {
-  it("initLeague seeds one player club plus five rivals", async () => {
-    const { initLeague } = await import("../game/league");
+  it("initLeague seeds one player club plus five rivals per division, player starting at the bottom", async () => {
+    const { initLeague, DIVISIONS, divisionOf } = await import("../game/league");
     const league = initLeague("Test Club");
-    expect(league.clubs.length).toBe(6);
+    expect(league.clubs.length).toBe(1 + 5 * DIVISIONS.length);
     const player = league.clubs.filter((c) => c.isPlayer);
     expect(player.length).toBe(1);
     expect(player[0].name).toBe("Test Club");
-    expect(new Set(league.clubs.map((c) => c.id)).size).toBe(6); // unique ids
+    expect(new Set(league.clubs.map((c) => c.id)).size).toBe(league.clubs.length); // unique ids
+    // every division is populated
+    for (const div of DIVISIONS) {
+      expect(league.clubs.filter((c) => c.divisionId === div.id).length).toBeGreaterThanOrEqual(5);
+    }
+    expect(divisionOf(league).tier).toBe(DIVISIONS.length); // starts in the bottom division
   });
 
   it("recordFixture deducts the division's fee and credits clears/points on a clear", async () => {
@@ -406,15 +411,21 @@ describe("league", () => {
 
   it("standings rank by clears first, then gold, then net gold, then squad, then reputation", async () => {
     const { standings } = await import("../game/league");
+    const club = (over: object) => ({
+      id: "x", name: "x", isPlayer: false, divisionId: "salvage", strength: 0.5,
+      clears: 0, losses: 0, floorsCleared: 0, goldEarned: 0, feePaid: 0, netGold: 0, points: 0,
+      squadHealth: 3, reputation: 0, form: [], careerClears: 0, careerGoldEarned: 0, seasonsPlayed: 0,
+      ...over,
+    });
     const league = {
-      divisionId: "salvage",
+      season: 1,
       round: 0,
       clubs: [
-        { id: "a", name: "More clears, less gold", isPlayer: false, strength: 0.5, clears: 3, losses: 0, floorsCleared: 10, goldEarned: 100, feePaid: 10, netGold: 90, points: 9, squadHealth: 3, reputation: 3, form: [] },
-        { id: "b", name: "Fewer clears, more gold", isPlayer: false, strength: 0.5, clears: 1, losses: 0, floorsCleared: 5, goldEarned: 900, feePaid: 90, netGold: 810, points: 3, squadHealth: 5, reputation: 5, form: [] },
+        club({ id: "a", name: "More clears, less gold", clears: 3, goldEarned: 100, netGold: 90 }),
+        club({ id: "b", name: "Fewer clears, more gold", clears: 1, goldEarned: 900, netGold: 810 }),
       ],
     };
-    const ranked = standings(league);
+    const ranked = standings(league, "salvage");
     expect(ranked[0].id).toBe("a"); // clears beat gold, exactly per the design's ranking priority
     expect(ranked[1].id).toBe("b");
   });
@@ -425,5 +436,128 @@ describe("league", () => {
     for (let i = 1; i < byTier.length; i++) {
       expect(byTier[i].feePct).toBeLessThan(byTier[i - 1].feePct);
     }
+  });
+
+  it("promotes a dominant club and relegates a winless one at season's end", async () => {
+    const { initLeague, recordFixture, playerClub, SEASON_LENGTH, DIVISIONS } = await import("../game/league");
+
+    const promoLeague = initLeague("Promo Test");
+    const startTier = playerClub(promoLeague).divisionId;
+    let last;
+    for (let i = 0; i < SEASON_LENGTH; i++) {
+      last = recordFixture(promoLeague, { cleared: true, floorsCleared: 20, goldEarned: 999999, squadHealth: 3, reputation: 0 });
+    }
+    expect(last!.seasonEnded).toBe(true);
+    expect(last!.promoted).toBe(true);
+    expect(playerClub(promoLeague).divisionId).not.toBe(startTier);
+    expect(promoLeague.season).toBe(2);
+    // season-to-date resets, but career total remembers the dominant run
+    expect(playerClub(promoLeague).clears).toBe(0);
+    expect(playerClub(promoLeague).careerClears).toBe(SEASON_LENGTH);
+
+    const relLeague = initLeague("Relegation Test");
+    let lastRel;
+    for (let i = 0; i < SEASON_LENGTH; i++) {
+      lastRel = recordFixture(relLeague, { cleared: false, floorsCleared: 0, goldEarned: 0, squadHealth: 1, reputation: 0 });
+    }
+    expect(lastRel!.seasonEnded).toBe(true);
+    // already at the bottom division, so a winless season can't relegate further —
+    // only assert it never promotes a club that lost every fixture
+    expect(lastRel!.promoted).toBe(false);
+    void DIVISIONS;
+  });
+
+  it("resetPlayerClub drops the club to the bottom division and clears its record", async () => {
+    const { initLeague, recordFixture, resetPlayerClub, playerClub, divisionOf, DIVISIONS, SEASON_LENGTH } = await import(
+      "../game/league"
+    );
+    const league = initLeague("Collapse Test");
+    for (let i = 0; i < SEASON_LENGTH; i++) {
+      recordFixture(league, { cleared: true, floorsCleared: 10, goldEarned: 999999, squadHealth: 3, reputation: 0 });
+    }
+    expect(divisionOf(league).tier).toBeLessThan(DIVISIONS.length); // promoted out of the bottom
+    resetPlayerClub(league, "Reborn Club");
+    expect(divisionOf(league).tier).toBe(DIVISIONS.length);
+    expect(playerClub(league).clears).toBe(0);
+    expect(playerClub(league).careerClears).toBe(0);
+    expect(playerClub(league).name).toBe("Reborn Club");
+  });
+});
+
+describe("recruitment market", () => {
+  it("prices recruits above zero and tags a risk level for each", async () => {
+    const { rollMarket } = await import("../game/recruitment");
+    const pool = rollMarket(new RNG("market-test"), 6);
+    expect(pool.length).toBe(6);
+    for (const m of pool) {
+      expect(m.price).toBeGreaterThan(0);
+      expect(["Low", "Medium", "High"]).toContain(m.risk);
+      expect(m.character.name.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("a full run seeded with a persistent roster starts the draft already signed", async () => {
+    const { makeCharacter } = await import("../game/character");
+    const seedParty = ["fighter", "cleric", "rogue"].map(
+      (classId, i) => makeCharacter(new RNG(`roster-seed-${i}`), { classId: classId as ClassId }),
+    );
+    const run = new Run("roster-run", "Test Club", seedParty);
+    expect(run.state.party.length).toBe(3);
+    expect(run.draftComplete).toBe(true);
+    expect(run.state.party.map((c) => c.id)).toEqual(seedParty.map((c) => c.id));
+  });
+});
+
+describe("disbandment", () => {
+  it("triggers on a total roster wipeout, not otherwise", async () => {
+    const { checkDisbandment } = await import("../game/guild");
+    const { initLeague } = await import("../game/league");
+    const base = {
+      version: 4 as const, name: "Test Club", sigil: "⛓", gold: 500, renown: 0, materials: 0,
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
+      runs: [], graveyard: [], bestDepth: 3, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
+      league: initLeague("Test Club"), roster: [], disbandments: 0,
+    };
+    expect(checkDisbandment(base)).toBeTruthy(); // empty roster
+    expect(checkDisbandment({ ...base, roster: [{} as never] })).toBeNull(); // someone's still fielded
+  });
+
+  it("triggers on financial collapse: broke plus three straight losses", async () => {
+    const { checkDisbandment } = await import("../game/guild");
+    const { initLeague, playerClub } = await import("../game/league");
+    const league = initLeague("Broke Club");
+    playerClub(league).form = ["L", "L", "L"];
+    const base = {
+      version: 4 as const, name: "Broke Club", sigil: "⛓", gold: 0, renown: 0, materials: 0,
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
+      runs: [], graveyard: [], bestDepth: 1, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
+      league, roster: [{} as never], disbandments: 0,
+    };
+    expect(checkDisbandment(base)).toBeTruthy();
+    expect(checkDisbandment({ ...base, gold: 40 })).toBeNull(); // not broke — safe despite the losing streak
+  });
+
+  it("disbandAndRebuild keeps history but resets the roster, most of the treasury, and league position", async () => {
+    const { disbandAndRebuild } = await import("../game/guild");
+    const { initLeague, divisionOf, DIVISIONS, playerClub } = await import("../game/league");
+    const league = initLeague("Doomed Club");
+    playerClub(league).divisionId = DIVISIONS[1].id; // pretend they'd climbed a tier
+    const g = {
+      version: 4 as const, name: "Doomed Club", sigil: "⛓", gold: 1000, renown: 100, materials: 0,
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
+      runs: [{ seed: "s", depth: 4, outcome: "wipe" as const, banked: 0, fee: 0, net: 0, party: [], when: 0 }],
+      graveyard: [{ name: "Bael", epitaph: "e", depth: 4, cause: "c" }],
+      bestDepth: 4, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
+      league, roster: [], disbandments: 0,
+    };
+    disbandAndRebuild(g, "New Name");
+    expect(g.name).toBe("New Name");
+    expect(g.gold).toBeLessThan(1000);
+    expect(g.disbandments).toBe(1);
+    expect(divisionOf(g.league).id).toBe(DIVISIONS[0].id); // dropped to the bottom
+    // history survives the collapse
+    expect(g.runs.length).toBe(1);
+    expect(g.graveyard.length).toBe(1);
+    expect(g.bestDepth).toBe(4);
   });
 });

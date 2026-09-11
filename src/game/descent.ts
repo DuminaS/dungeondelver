@@ -23,14 +23,15 @@ export class Run {
   readonly partySize = RUN_CONFIG.partySize;
   mulligansLeft = RUN_CONFIG.mulligans;
 
-  constructor(seed?: string, guildName = "The Gordion Pit") {
+  /** `roster` is the club's persistent, already-signed characters — they skip the draft entirely */
+  constructor(seed?: string, guildName = "The Gordion Pit", roster: Character[] = []) {
     const s = seed ?? randomSeed();
     this.rng = new RNG(s);
     this.draftRng = this.rng.fork("draft");
     this.state = {
       seed: s,
       guildName,
-      party: [],
+      party: roster.slice(0, this.partySize),
       graveyard: [],
       depth: 0,
       gold: 0,

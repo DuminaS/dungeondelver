@@ -3,7 +3,8 @@
  * Founded once, upgraded between runs, kept in localStorage.
  */
 import { RUN_CONFIG, resetConfig } from "./config";
-import { initLeague, LeagueState } from "./league";
+import { initLeague, LeagueState, playerClub, resetPlayerClub } from "./league";
+import { Character } from "./types";
 
 export type BuildingId =
   | "recruitment" | "barracks" | "training" | "pedigree" | "vault" | "infirmary" | "smithy";
@@ -30,7 +31,7 @@ export interface MetaRun {
 }
 
 export interface Guild {
-  version: 3;
+  version: 4;
   name: string | null; // null → not yet founded
   sigil: string;
   gold: number;
@@ -46,6 +47,9 @@ export interface Guild {
   founded: number;
   /** the club's standing in the dungeon league — see game/league.ts */
   league: LeagueState;
+  /** signed, persistent roster — carries between runs until they die or are released */
+  roster: Character[];
+  disbandments: number;
 }
 
 export interface Building {
@@ -145,7 +149,7 @@ const LEGACY = "gordion-meta-v1";
 
 function blankGuild(): Guild {
   return {
-    version: 3,
+    version: 4,
     name: null,
     sigil: SIGILS[0],
     gold: 0,
@@ -160,13 +164,21 @@ function blankGuild(): Guild {
     retires: 0,
     founded: 0,
     league: initLeague("Unnamed Club"),
+    roster: [],
+    disbandments: 0,
   };
 }
 
 export function loadGuild(): Guild {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...blankGuild(), ...JSON.parse(raw), version: 3 };
+    if (raw) {
+      const g: Guild = { ...blankGuild(), ...JSON.parse(raw), version: 4 };
+      // pre-league-rework saves carry an incompatible `league` shape — reinit rather
+      // than patch it field-by-field (no real stakes yet, this is a playtest save)
+      if (!g.league || typeof g.league.season !== "number") g.league = initLeague(g.name ?? "Unnamed Club");
+      return g;
+    }
   } catch {
     /* ignore */
   }
@@ -269,5 +281,37 @@ export function recordRun(
     g.retires += 1;
     g.renown += 5 + run.depth;
   }
+  saveGuild(g);
+}
+
+/**
+ * Is the club in trouble? Checked after every fixture resolves. Two
+ * conditions, either one enough to force a rebuild:
+ *  - total wipe: nobody survived, there's no one left to field
+ *  - financial collapse: broke, and the last three fixtures were losses
+ */
+export function checkDisbandment(g: Guild): string | null {
+  if (g.roster.length === 0) return "The roster was wiped out — there's no one left to field.";
+  const player = playerClub(g.league);
+  const recent = player.form.slice(-3);
+  if (g.gold <= 0 && recent.length >= 3 && recent.every((r) => r === "L")) {
+    return "Broke, and three straight fixtures lost — the club can't make payroll.";
+  }
+  return null;
+}
+
+/**
+ * Force a rebuild: the roster is gone, most of the treasury is gone, the
+ * club drops to the bottom division and its league record resets. Guild
+ * history — the graveyard, past runs, best depth — is kept; the Pit
+ * remembers, even when a club doesn't survive it.
+ */
+export function disbandAndRebuild(g: Guild, newName: string): void {
+  g.roster = [];
+  g.gold = Math.round(g.gold * 0.2);
+  g.renown = Math.round(g.renown * 0.5);
+  g.disbandments += 1;
+  g.name = newName.slice(0, 28) || "The Gordion Pit";
+  resetPlayerClub(g.league, g.name);
   saveGuild(g);
 }
