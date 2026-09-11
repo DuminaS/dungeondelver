@@ -1,14 +1,21 @@
 /**
- * The Recruitment Market — a paid, targeted alternative to the free draft
- * roll. The draft still hands you random prospects for open roster slots at
- * no cost; the market lets you spend treasury gold to sign a *specific*
- * prospect outright, any time between runs (chase a class you're missing,
- * replace someone who just died, and so on).
+ * How a club fills its roster — there is no free blind draft any more.
+ *
+ * The Recruitment Market: spend treasury gold to sign a specific,
+ * fully-rolled prospect outright — expensive but targeted (chase a role
+ * you're missing, replace someone who just died with a known quantity).
+ *
+ * The Sump School (the club's youth academy): a cheap, always-available
+ * fallback — every prospect it turns out is weaker than a market signing
+ * (a lower stat floor, tightened further below the academy building's
+ * level), but it's the one path that never dries up, and it's how a brand
+ * new club with only its founding grant fields its first squad at all.
  */
 import { RNG } from "../core/rng";
 import { ABILITIES, Character } from "./types";
 import { makeCharacter } from "./character";
 import { TRAITS } from "./data";
+import { RUN_CONFIG } from "./config";
 
 export type Risk = "Low" | "Medium" | "High";
 
@@ -41,4 +48,19 @@ export function rollMarket(rng: RNG, count = 4): MarketRecruit[] {
     out.push({ character: c, price: priceFor(c), risk: riskFor(c) });
   }
   return out;
+}
+
+export const ACADEMY_COST = 60;
+const ACADEMY_MAX_LEVEL = 3;
+
+/** how far below the current recruit floor an academy grad rolls at, by building level (0 = unbuilt) */
+function academyFloor(academyLevel: number): number {
+  const gap = ACADEMY_MAX_LEVEL + 1 - Math.min(academyLevel, ACADEMY_MAX_LEVEL); // 4..1
+  return Math.max(1, RUN_CONFIG.statFloor - gap);
+}
+
+/** one cheap, deliberately weaker-than-market prospect straight out of the Sump School */
+export function rollAcademyProspect(rng: RNG, academyLevel: number): MarketRecruit {
+  const c = makeCharacter(rng.fork("academy"), { statFloor: academyFloor(academyLevel) });
+  return { character: c, price: ACADEMY_COST, risk: riskFor(c) };
 }

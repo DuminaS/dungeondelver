@@ -363,6 +363,13 @@ ul.keyed .ic { color: var(--gold); margin-top: 2px; }
   transition: box-shadow 0.15s;
 }
 .pit-panel:hover { box-shadow: 0 0 0 1px var(--gold), 0 0 40px -8px rgba(217,164,65,0.4) inset; }
+.pit-panel--locked {
+  cursor: default; border-color: var(--iron-2);
+  background: radial-gradient(120% 140% at 12% 20%, #1a140c, var(--stone));
+  opacity: 0.75;
+}
+.pit-panel--locked:hover { box-shadow: none; }
+.pit-panel--locked .pit-void { filter: grayscale(1); }
 .pit-void {
   aspect-ratio: 1; border-radius: 50%;
   background:

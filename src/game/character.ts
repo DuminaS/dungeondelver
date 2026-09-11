@@ -62,15 +62,22 @@ function rollStatArray(rng: RNG): number[] {
   return rolls.sort((a, b) => b - a);
 }
 
-function assignStats(rng: RNG, classId: ClassId): Abilities {
+function assignStats(rng: RNG, classId: ClassId, floorOverride?: number): Abilities {
   const arr = rollStatArray(rng);
   const prio = STAT_PRIORITY[classId];
   const out = {} as Abilities;
+  const floor = floorOverride ?? RUN_CONFIG.statFloor;
   prio.forEach((k, i) => {
-    out[k] = Math.max(RUN_CONFIG.statFloor, arr[i]);
+    out[k] = Math.max(floor, arr[i]);
   });
   if (RUN_CONFIG.primaryBonus) out[prio[0]] += RUN_CONFIG.primaryBonus;
   return out;
+}
+
+/** upkeep the club pays per fixture this chaindiver is on the books — scales with level and raw stat quality */
+export function salaryFor(c: Character): number {
+  const statSum = ABILITIES.reduce((s, k) => s + c.abilities[k], 0);
+  return Math.max(4, Math.round(6 + c.level * 5 + (statSum - 60) * 0.6));
 }
 
 function avgHitDie(die: number): number {
@@ -183,6 +190,7 @@ export function recompute(c: Character): void {
   }
 
   if (c.hp > c.maxHp) c.hp = c.maxHp;
+  c.salary = salaryFor(c);
 }
 
 export function toHit(c: Character): number {
@@ -197,10 +205,10 @@ export function damageBonus(c: Character): number {
 }
 
 let idCounter = 0;
-export function makeCharacter(rng: RNG, opts?: { classId?: ClassId; raceId?: RaceId }): Character {
+export function makeCharacter(rng: RNG, opts?: { classId?: ClassId; raceId?: RaceId; statFloor?: number }): Character {
   const raceId = opts?.raceId ?? rng.weighted(RACE_WEIGHTS);
   const classId = opts?.classId ?? rng.weighted(CLASS_WEIGHTS);
-  const abilities = assignStats(rng, classId);
+  const abilities = assignStats(rng, classId, opts?.statFloor);
 
   // race mods
   const race = RACES[raceId];
@@ -238,6 +246,7 @@ export function makeCharacter(rng: RNG, opts?: { classId?: ClassId; raceId?: Rac
     kills: 0,
     floorsSurvived: 0,
     injuries: [],
+    salary: 0,
   };
   recompute(c);
   c.hp = c.maxHp;

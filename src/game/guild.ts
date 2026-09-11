@@ -7,7 +7,7 @@ import { initLeague, LeagueState, playerClub, resetPlayerClub } from "./league";
 import { Character } from "./types";
 
 export type BuildingId =
-  | "recruitment" | "barracks" | "training" | "pedigree" | "vault" | "infirmary" | "smithy";
+  | "recruitment" | "barracks" | "training" | "pedigree" | "vault" | "infirmary" | "smithy" | "academy";
 
 export interface Grave {
   name: string;
@@ -24,7 +24,9 @@ export interface MetaRun {
   banked: number;
   /** league fee taken off that fixture's gold */
   fee: number;
-  /** what actually landed in the treasury after the fee */
+  /** roster upkeep paid this fixture, taken off after the fee */
+  wages: number;
+  /** what actually landed in the treasury — can be negative (debt) */
   net: number;
   party: string[];
   when: number;
@@ -77,10 +79,10 @@ export const BUILDINGS: Building[] = [
     id: "recruitment",
     name: "Recruitment Hall",
     glyph: "‡",
-    blurb: "How many recruits the Pit dangles in front of you each pick.",
+    blurb: "Scouting reach. How many prospects the Market turns up per visit.",
     max: 5,
     cost: (l) => [150, 350, 750, 1500, 2800][l] ?? 0,
-    effect: (l) => `Draft pool N ${3 + l}` + (l >= 2 ? " · +1 mulligan" : ""),
+    effect: (l) => `Market shows ${3 + l} prospects`,
   },
   {
     id: "barracks",
@@ -140,6 +142,15 @@ export const BUILDINGS: Building[] = [
     cost: (l) => [500, 1500][l] ?? 0,
     effect: (l) => ["No infirmary", "Death saves at advantage", "Death saves at advantage · 40% post-floor heal"][Math.min(l, 2)],
   },
+  {
+    id: "academy",
+    name: "The Sump School",
+    glyph: "❋",
+    blurb: "The club's own training pipeline. Cheap graduates, never dries up, always a rung below the Market's best.",
+    max: 3,
+    cost: (l) => [250, 700, 1600][l] ?? 0,
+    effect: (l) => `Graduate stat floor ${l >= 3 ? "close to" : "well below"} a normal recruit's` + (l === 0 ? " (unbuilt — still usable, worst quality)" : ""),
+  },
 ];
 
 export const SIGILS = ["⛓", "✦", "☗", "⚔", "☠", "◆", "✠", "⚜", "✜", "❖"];
@@ -155,7 +166,7 @@ function blankGuild(): Guild {
     gold: 0,
     renown: 0,
     materials: 0,
-    buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
+    buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
     runs: [],
     graveyard: [],
     bestDepth: 0,
@@ -266,7 +277,16 @@ export function applyGuildToConfig(g: Guild): void {
 
 export function recordRun(
   g: Guild,
-  run: { seed: string; depth: number; outcome: "wipe" | "retired"; banked: number; fee: number; net: number; party: string[] },
+  run: {
+    seed: string;
+    depth: number;
+    outcome: "wipe" | "retired";
+    banked: number;
+    fee: number;
+    wages: number;
+    net: number;
+    party: string[];
+  },
   graves: Grave[],
 ): void {
   g.runs.unshift({ ...run, when: Date.now() });
@@ -276,7 +296,8 @@ export function recordRun(
   g.bestDepth = Math.max(g.bestDepth, run.depth);
   g.bestBanked = Math.max(g.bestBanked, run.banked);
   g.totalBanked += Math.max(0, run.banked);
-  g.gold += Math.max(0, run.net);
+  // wages can push this negative — a club can go into debt, same as any club that can't make payroll
+  g.gold += run.net;
   if (run.outcome === "retired") {
     g.retires += 1;
     g.renown += 5 + run.depth;
@@ -284,14 +305,18 @@ export function recordRun(
   saveGuild(g);
 }
 
+const SEVERE_DEBT = -300;
+
 /**
- * Is the club in trouble? Checked after every fixture resolves. Two
- * conditions, either one enough to force a rebuild:
+ * Is the club in trouble? Checked after every fixture resolves. Any one of
+ * three conditions forces a rebuild:
  *  - total wipe: nobody survived, there's no one left to field
  *  - financial collapse: broke, and the last three fixtures were losses
+ *  - severe debt: too far underwater on wages to ever dig out
  */
 export function checkDisbandment(g: Guild): string | null {
   if (g.roster.length === 0) return "The roster was wiped out — there's no one left to field.";
+  if (g.gold <= SEVERE_DEBT) return "The club is too deep in debt on wages to ever make payroll again.";
   const player = playerClub(g.league);
   const recent = player.form.slice(-3);
   if (g.gold <= 0 && recent.length >= 3 && recent.every((r) => r === "L")) {

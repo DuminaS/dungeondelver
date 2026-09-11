@@ -88,6 +88,8 @@ export interface Character {
   kills: number;
   floorsSurvived: number;
   injuries: string[];
+  /** upkeep the club pays per fixture — kept in sync by recompute() */
+  salary: number;
   // per-encounter resources
   secondWindUsed?: boolean;
   markTargetId?: string | null;

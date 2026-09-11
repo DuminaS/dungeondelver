@@ -528,7 +528,7 @@ describe("disbandment", () => {
     const { initLeague } = await import("../game/league");
     const base = {
       version: 4 as const, name: "Test Club", sigil: "⛓", gold: 500, renown: 0, materials: 0,
-      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 3, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
       league: initLeague("Test Club"), roster: [], disbandments: 0,
     };
@@ -543,7 +543,7 @@ describe("disbandment", () => {
     playerClub(league).form = ["L", "L", "L"];
     const base = {
       version: 4 as const, name: "Broke Club", sigil: "⛓", gold: 0, renown: 0, materials: 0,
-      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 1, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
       league, roster: [{} as never], disbandments: 0,
     };
@@ -558,8 +558,8 @@ describe("disbandment", () => {
     playerClub(league).divisionId = DIVISIONS.find((d) => d.level === 1)!.id; // pretend they'd climbed to the top
     const g = {
       version: 4 as const, name: "Doomed Club", sigil: "⛓", gold: 1000, renown: 100, materials: 0,
-      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
-      runs: [{ seed: "s", depth: 4, outcome: "wipe" as const, banked: 0, fee: 0, net: 0, party: [], when: 0 }],
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
+      runs: [{ seed: "s", depth: 4, outcome: "wipe" as const, banked: 0, fee: 0, wages: 0, net: 0, party: [], when: 0 }],
       graveyard: [{ name: "Bael", epitaph: "e", depth: 4, cause: "c" }],
       bestDepth: 4, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
       league, roster: [], disbandments: 0,
@@ -573,5 +573,68 @@ describe("disbandment", () => {
     expect(g.runs.length).toBe(1);
     expect(g.graveyard.length).toBe(1);
     expect(g.bestDepth).toBe(4);
+  });
+
+  it("severe debt forces a rebuild even mid-winning-streak; ordinary finances don't", async () => {
+    const { checkDisbandment } = await import("../game/guild");
+    const { initLeague, playerClub } = await import("../game/league");
+    const league = initLeague("Debt Club");
+    playerClub(league).form = ["W", "W", "W"]; // winning streak — the old broke+losing check wouldn't fire
+    const base = {
+      version: 4 as const, name: "Debt Club", sigil: "⛓", gold: -50, renown: 0, materials: 0,
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
+      runs: [], graveyard: [], bestDepth: 2, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
+      league, roster: [{} as never], disbandments: 0,
+    };
+    expect(checkDisbandment(base)).toBeNull(); // -50 is a manageable dip
+    expect(checkDisbandment({ ...base, gold: -300 })).toBeTruthy(); // -300 is severe debt regardless of form
+  });
+});
+
+describe("wages and the Sump School", () => {
+  it("salaryFor scales with level and stat quality, and stays in sync through a level-up", async () => {
+    const { makeCharacter, salaryFor, grantXp, applyLevelUp } = await import("../game/character");
+    const weak = makeCharacter(new RNG("sal-weak"), { classId: "fighter", statFloor: 3 });
+    const strong = makeCharacter(new RNG("sal-strong"), { classId: "fighter", statFloor: 8 });
+    expect(weak.salary).toBeGreaterThan(0);
+    expect(salaryFor(weak)).toBe(weak.salary); // kept in sync at creation
+    expect(strong.salary).toBeGreaterThan(weak.salary); // better stats cost more upkeep
+
+    const before = weak.salary;
+    grantXp(weak, 50000);
+    while (weak.pendingLevelUps > 0) applyLevelUp(weak, "fighter");
+    expect(weak.salary).toBeGreaterThan(before); // a leveled-up roster costs more to keep
+  });
+
+  it("Sump School graduates price at a flat cost and roll weaker than the Market on average", async () => {
+    const { rollMarket, rollAcademyProspect, ACADEMY_COST } = await import("../game/recruitment");
+    const { ABILITIES } = await import("../game/types");
+    const statTotal = (c: { abilities: Record<string, number> }) => ABILITIES.reduce((s: number, k: string) => s + c.abilities[k], 0);
+
+    let marketTotal = 0;
+    let academyTotal = 0;
+    const trials = 40;
+    for (let i = 0; i < trials; i++) {
+      const m = rollMarket(new RNG(`wsm-${i}`), 1)[0];
+      const a = rollAcademyProspect(new RNG(`wsa-${i}`), 0);
+      expect(a.price).toBe(ACADEMY_COST);
+      marketTotal += statTotal(m.character);
+      academyTotal += statTotal(a.character);
+    }
+    expect(academyTotal / trials).toBeLessThan(marketTotal / trials);
+  });
+
+  it("a higher academy level narrows the gap to the Market but never closes it", async () => {
+    const { rollAcademyProspect } = await import("../game/recruitment");
+    const { ABILITIES } = await import("../game/types");
+    const statTotal = (c: { abilities: Record<string, number> }) => ABILITIES.reduce((s: number, k: string) => s + c.abilities[k], 0);
+    let lvl0 = 0;
+    let lvl3 = 0;
+    const trials = 30;
+    for (let i = 0; i < trials; i++) {
+      lvl0 += statTotal(rollAcademyProspect(new RNG(`al0-${i}`), 0).character);
+      lvl3 += statTotal(rollAcademyProspect(new RNG(`al3-${i}`), 3).character);
+    }
+    expect(lvl3 / trials).toBeGreaterThan(lvl0 / trials);
   });
 });
