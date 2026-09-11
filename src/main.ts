@@ -16,16 +16,22 @@ import {
 import { RUN_CONFIG } from "./game/config";
 import {
   BUILDINGS,
+  deleteSlotSave,
   Guild,
+  SaveSlot,
+  SlotSummary,
   applyGuildToConfig,
   buildingLevel,
   checkDisbandment,
   disbandAndRebuild,
   doUpgrade,
   foundGuild,
-  loadGuild,
+  getActiveSlot,
+  listSlotSummaries,
+  loadGuildSlot,
   recordRun,
   saveGuild,
+  setActiveSlot,
   SIGILS,
   upgradeBlocked,
   upgradeCost,
@@ -43,12 +49,13 @@ import { RNG } from "./core/rng";
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
 
-type Phase = "found" | "settlement" | "standings" | "market" | "disband" | "recap" | "descent" | "encounter" | "aftermath" | "debrief";
+type Phase = "mainmenu" | "found" | "settlement" | "standings" | "market" | "disband" | "recap" | "descent" | "encounter" | "aftermath" | "debrief";
 
 const app = document.getElementById("app")!;
-let guild: Guild = loadGuild();
-applyGuildToConfig(guild);
-let phase: Phase = guild.name ? "settlement" : "found";
+// nothing is loaded until a slot is chosen at the main menu — this is just a
+// safe placeholder so `guild` never needs to be nullable everywhere it's used
+let guild: Guild = loadGuildSlot(1);
+let phase: Phase = "mainmenu";
 let run: Run | null = null;
 let enc: Encounter | null = null;
 let board: BoardView | null = null;
@@ -160,7 +167,7 @@ function weaponLabel(c: Character): string {
   return `${c.weapon.dice}${c.weapon.ranged ? `·r${c.weapon.range}` : ""}`;
 }
 
-function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean; footer?: string } = {}): string {
+function characterCard(c: Character, opts: { sheet?: boolean; footer?: string } = {}): string {
   const cls = CLASSES[c.classId];
   const race = RACES[c.raceId];
   const accent = classAccent(primaryClassOf(c));
@@ -172,7 +179,7 @@ function characterCard(c: Character, opts: { pick?: boolean; sheet?: boolean; fo
     .join("");
   const clickAttr = opts.sheet ? ` data-sheet="${c.id}"` : "";
   return `
-  <div class="ucard ${opts.pick ? "ucard--pick" : ""} ${opts.sheet ? "ucard--sheet" : ""}" data-id="${c.id}"${clickAttr} style="--card-accent:${accent}" title="${opts.sheet ? "View sheet" : esc(cls.blurb)}">
+  <div class="ucard ${opts.sheet ? "ucard--sheet" : ""}" data-id="${c.id}"${clickAttr} style="--card-accent:${accent}" title="${opts.sheet ? "View sheet" : esc(cls.blurb)}">
     <div class="ucard__head">
       ${crest(c.classId, "sm")}
       <div style="flex:1;min-width:0">
@@ -327,6 +334,7 @@ document.addEventListener("keydown", (e) => {
 
 function render(): void {
   const map: Record<Phase, () => void> = {
+    mainmenu: renderMainMenu,
     found: renderFound,
     settlement: renderSettlement,
     standings: renderStandings,
@@ -339,6 +347,69 @@ function render(): void {
     debrief: renderDebrief,
   };
   map[phase]();
+}
+
+// ---------------------------------------------------------------- main menu / save slots
+
+function slotCard(s: SlotSummary): string {
+  if (!s.exists) {
+    return `
+    <div class="ucard slotcard" data-slot="${s.slot}">
+      <div class="ucard__head">
+        <div style="flex:1"><div class="ucard__name">Slot ${s.slot}</div><div class="ucard__kind">Empty</div></div>
+      </div>
+      <p class="sub">No club here yet. Found one and start fresh.</p>
+      <button class="primary" data-play="${s.slot}">${icon("check")} Found a club</button>
+    </div>`;
+  }
+  return `
+  <div class="ucard slotcard" data-slot="${s.slot}">
+    <div class="ucard__head">
+      <div style="flex:1"><div class="ucard__name">${esc(s.sigil)} ${esc(s.name!)}</div><div class="ucard__kind">Slot ${s.slot}${s.disbandments ? ` · rebuilt ${s.disbandments}×` : ""}</div></div>
+    </div>
+    <div class="statrow">
+      ${stat("loot", `${s.gold}g`, s.gold < 0 ? "bad" : "gold", "treasury")}
+      ${stat("check", `Deep ${s.bestDepth}`, "", "deepest ever")}
+      ${stat("star", `Level ${s.leagueLevel}`, "", "league level")}
+    </div>
+    <div class="row" style="gap:8px">
+      <button class="primary" data-play="${s.slot}">${icon("extract")} Play</button>
+      <button class="danger" data-delete="${s.slot}">${icon("x")} Delete</button>
+    </div>
+  </div>`;
+}
+
+function renderMainMenu(): void {
+  const slots = listSlotSummaries();
+  app.innerHTML = `
+  <div class="wrap center col">
+    <div><div class="eyebrow">Depthdiver</div><h1>The Gordion Pit</h1></div>
+    <p class="muted">Three clubs, three separate saves. Pick one to continue, or found a new club in an empty slot.</p>
+    <div class="cards">${slots.map(slotCard).join("")}</div>
+  </div>`;
+
+  app.querySelectorAll<HTMLElement>("[data-play]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const slot = parseInt(b.dataset.play!, 10) as SaveSlot;
+      setActiveSlot(slot);
+      guild = loadGuildSlot(slot);
+      applyGuildToConfig(guild);
+      phase = guild.name ? "settlement" : "found";
+      render();
+    });
+  });
+  app.querySelectorAll<HTMLElement>("[data-delete]").forEach((b) => {
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const slot = parseInt(b.dataset.delete!, 10) as SaveSlot;
+      const s = slots.find((x) => x.slot === slot);
+      if (!s) return;
+      if (confirm(`Delete "${s.name}"? This can't be undone.`)) {
+        deleteSlotSave(slot);
+        renderMainMenu();
+      }
+    });
+  });
 }
 
 // ---------------------------------------------------------------- found the Pit
@@ -377,6 +448,16 @@ function renderFound(): void {
 
 function renderSettlement(): void {
   const g = guild;
+  // proactive check — a stuck club (e.g. a building purchase leaving too
+  // little gold to ever complete the roster again) needs a way out even
+  // when it isn't the direct result of the fixture that just resolved
+  const stuckReason = checkDisbandment(g);
+  if (stuckReason) {
+    pendingDisbandReason = stuckReason;
+    phase = "disband";
+    render();
+    return;
+  }
   const div = divisionOf(g.league);
   const rank = playerRank(g.league);
   const totalWages = g.roster.reduce((s, c) => s + c.salary, 0);
@@ -406,11 +487,12 @@ function renderSettlement(): void {
   app.innerHTML = `
   <div class="wrap col">
     <div class="settle-head">
-      <div><div class="eyebrow">Settlement</div><h1>${esc(g.sigil)} ${esc(g.name ?? "The Gordion Pit")}</h1></div>
+      <div><div class="eyebrow">Settlement · Slot ${getActiveSlot()}</div><h1>${esc(g.sigil)} ${esc(g.name ?? "The Gordion Pit")}</h1></div>
       <div class="statrow">
         ${stat("loot", `${g.gold}g`, "gold", "treasury")}
         ${stat("star", g.renown, "", "renown")}
         ${stat("check", `Deep ${g.bestDepth}`, "", "deepest ever")}
+        <button id="switch-club" title="Back to the club select screen">${icon("chevron")} Switch club</button>
       </div>
     </div>
 
@@ -473,6 +555,19 @@ function renderSettlement(): void {
     e.stopPropagation();
     if (!marketPool.length) rerollMarket();
     phase = "market";
+    render();
+  });
+  document.getElementById("switch-club")!.addEventListener("click", (e) => {
+    e.stopPropagation();
+    run = null;
+    enc = null;
+    report = null;
+    fixtureResult = null;
+    seasonRecap = null;
+    pendingDisbandReason = null;
+    marketPool = [];
+    academyProspect = null;
+    phase = "mainmenu";
     render();
   });
   app.querySelectorAll<HTMLElement>("[data-up]").forEach((b) => {
@@ -1109,7 +1204,11 @@ function refreshEncounter(): void {
         saveGuild(guild);
         flashToast(`★ Boss down — +${gained} Renown`);
       }
-      if (won && !run!.state.over) {
+      if (won) {
+        // always give a chance to assign level-ups earned on this floor —
+        // including the season's final one, where the run also happens to
+        // end (state.over) — "Onward" on the aftermath screen routes
+        // straight to finishRun() in that case instead of the next floor
         phase = "aftermath";
         render();
       } else finishRun();
@@ -1399,7 +1498,7 @@ function renderAftermath(): void {
   const pending = run.state.party.filter((c) => c.pendingLevelUps > 0);
   app.innerHTML = `
   <div class="wrap center col">
-    <div><div class="eyebrow">Aftermath</div><h1>Deep ${run.state.depth} cleared</h1></div>
+    <div><div class="eyebrow">Aftermath</div><h1>${run.state.over ? "The dungeon is cleared" : `Deep ${run.state.depth} cleared`}</h1></div>
     <div class="panel col">
       <div class="statrow">
         ${stat("loot", `+${r.loot}g`, "gold", "looted")}
@@ -1416,7 +1515,7 @@ function renderAftermath(): void {
     <h2>Warband</h2>
     <div class="cards">${run.state.party.map((c) => characterCard(c, { sheet: true })).join("")}</div>
     <div class="row">
-      <button class="primary" id="go" ${pending.length ? "disabled" : ""}>${icon("chevron")} Onward</button>
+      <button class="primary" id="go" ${pending.length ? "disabled" : ""}>${icon("chevron")} ${run.state.over ? "See the results" : "Onward"}</button>
       ${pending.length ? `<span class="hint">${icon("threat")} Assign every level before moving on</span>` : ""}
     </div>
   </div>`;
@@ -1424,8 +1523,15 @@ function renderAftermath(): void {
   document.getElementById("go")!.addEventListener("click", () => {
     if (run!.state.party.some((c) => c.pendingLevelUps > 0)) return;
     enc = null;
-    phase = "descent";
-    render();
+    if (run!.state.over) {
+      // the season's dungeon just ended on this floor (a full clear, or a
+      // wipe/retire resolved while pending level-ups were still open) —
+      // there's no next floor to go back to
+      finishRun();
+    } else {
+      phase = "descent";
+      render();
+    }
   });
 }
 
@@ -1600,6 +1706,11 @@ function flashToast(msg: string): void {
 function maybeDevJump(): boolean {
   const p = new URLSearchParams(location.search);
   const d = p.get("dev");
+  if (!d) return false;
+  // every dev shortcut bypasses the main menu entirely and always uses Slot 1
+  setActiveSlot(1);
+  guild = loadGuildSlot(1);
+  applyGuildToConfig(guild);
   if (d === "settle") {
     guild.name = guild.name ?? "Dev Pit";
     guild.gold = 9000;
@@ -1609,6 +1720,7 @@ function maybeDevJump(): boolean {
       const rng = new RNG("dev-settle-roster");
       guild.roster = ["fighter", "cleric", "rogue"].map((cid) => makeCharacter(rng, { classId: cid as ClassId }));
     }
+    if (p.get("persist")) saveGuild(guild); // for exercising the main menu's slot summaries against a real save
     phase = "settlement";
     return true;
   }
@@ -1742,6 +1854,66 @@ function maybeDevJump(): boolean {
       run.retire();
     }
     finishRun();
+    return true;
+  }
+  if (d === "fullclear") {
+    // verifies the fix: a season's final floor still shows the aftermath /
+    // level-up screen before handing off to finishRun(), instead of
+    // skipping straight to the debrief with pending levels stranded
+    guild.name = guild.name ?? "Dev Pit";
+    applyGuildToConfig(guild);
+    RUN_CONFIG.dungeonFloors = 1; // floor 1 is the final floor
+    const player3 = guild.league.clubs.find((c) => c.isPlayer);
+    if (player3) player3.name = guild.name;
+    run = new Run(p.get("seed") || "fullclear-seed", guild.name);
+    while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
+    run.state.party.forEach((c) => grantXp(c, 50000)); // guarantee pending level-ups
+    run.beginDescent();
+    const e = run.enterFloor(run.state.nextFloors[0])!;
+    e.autoDeploy();
+    let guard5 = 0;
+    while ((e.phase === "player" || e.phase === "enemy") && guard5++ < 400) {
+      if (e.phase === "enemy") {
+        e.runEnemyTurn();
+        continue;
+      }
+      const u = e.active;
+      if (!u) {
+        e.endTurn();
+        continue;
+      }
+      const t = e.attackTargets(u).sort((a, b) => a.hp - b.hp)[0];
+      if (t && !u.actionUsed) {
+        e.doAttack(t.id);
+        continue;
+      }
+      const foes = e.units.filter((x) => x.team === "enemy" && x.alive);
+      let moved = false;
+      if (foes.length && e.moveBudget(u) > 0) {
+        let best: string | null = null,
+          bd = Infinity;
+        for (const k of e.moveOptions(u).keys()) {
+          const [q, r] = k.split(",").map(Number);
+          const dd = Math.min(...foes.map((f) => Math.abs(f.pos.q - q) + Math.abs(f.pos.r - r)));
+          if (dd < bd) {
+            bd = dd;
+            best = k;
+          }
+        }
+        if (best) {
+          const [q, r] = best.split(",").map(Number);
+          moved = e.moveTo({ q, r });
+        }
+      }
+      if (!moved) e.endTurn();
+    }
+    enc = e;
+    if (e.phase === "won") {
+      report = run.resolveEncounter();
+      phase = "aftermath";
+    } else {
+      phase = "descent"; // wiped before clearing — nothing to verify, just don't crash
+    }
     return true;
   }
   if (d === "sheet") {

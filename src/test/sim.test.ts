@@ -530,7 +530,7 @@ describe("disbandment", () => {
       version: 4 as const, name: "Test Club", sigil: "⛓", gold: 500, renown: 0, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 3, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league: initLeague("Test Club"), roster: [], disbandments: 0, bestLeagueLevel: 7,
+      league: initLeague("Test Club"), roster: [], disbandments: 0, bestLeagueLevel: 7, fixturesThisIncarnation: 1,
     };
     expect(checkDisbandment(base)).toBeTruthy(); // empty roster
     expect(checkDisbandment({ ...base, roster: [{} as never] })).toBeNull(); // someone's still fielded
@@ -545,7 +545,7 @@ describe("disbandment", () => {
       version: 4 as const, name: "Broke Club", sigil: "⛓", gold: 0, renown: 0, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 1, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league, roster: [{} as never], disbandments: 0, bestLeagueLevel: 7,
+      league, roster: [{} as never, {} as never, {} as never], disbandments: 0, bestLeagueLevel: 7, fixturesThisIncarnation: 1,
     };
     expect(checkDisbandment(base)).toBeTruthy();
     expect(checkDisbandment({ ...base, gold: 40 })).toBeNull(); // not broke — safe despite the losing streak
@@ -562,7 +562,7 @@ describe("disbandment", () => {
       runs: [{ seed: "s", depth: 4, outcome: "wipe" as const, banked: 0, fee: 0, wages: 0, net: 0, party: [], when: 0 }],
       graveyard: [{ name: "Bael", epitaph: "e", depth: 4, cause: "c" }],
       bestDepth: 4, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league, roster: [], disbandments: 0, bestLeagueLevel: 7,
+      league, roster: [], disbandments: 0, bestLeagueLevel: 7, fixturesThisIncarnation: 1,
     };
     disbandAndRebuild(g, "New Name");
     expect(g.name).toBe("New Name");
@@ -573,6 +573,45 @@ describe("disbandment", () => {
     expect(g.runs.length).toBe(1);
     expect(g.graveyard.length).toBe(1);
     expect(g.bestDepth).toBe(4);
+    expect(g.fixturesThisIncarnation).toBe(0); // a fresh incarnation — the wipe check won't misfire on its empty roster
+  });
+
+  it("catches the financial gridlock softlock: roster short, and too broke to ever complete it again", async () => {
+    const { checkDisbandment } = await import("../game/guild");
+    const { RUN_CONFIG, resetConfig } = await import("../game/config");
+    const { initLeague } = await import("../game/league");
+    resetConfig(); // partySize:3
+    const base = {
+      version: 4 as const, name: "Broke Club", sigil: "⛓", gold: 0, renown: 0, materials: 0,
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
+      runs: [], graveyard: [], bestDepth: 1, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
+      league: initLeague("Broke Club"), roster: [{} as never, {} as never], disbandments: 0, bestLeagueLevel: 7,
+      fixturesThisIncarnation: 5,
+    };
+    // 2 of 3 signed, 0 gold — can't afford even one 60g Sump School graduate to close the gap
+    expect(checkDisbandment(base)).toBeTruthy();
+    // the same shortfall, but with enough gold to cover it, is perfectly fine
+    expect(checkDisbandment({ ...base, gold: 60 * (RUN_CONFIG.partySize - 2) })).toBeNull();
+  });
+
+  it("a freshly founded or freshly rebuilt club is never mistaken for being in gridlock", async () => {
+    const { checkDisbandment, disbandAndRebuild } = await import("../game/guild");
+    const { resetConfig } = await import("../game/config");
+    const { initLeague } = await import("../game/league");
+    resetConfig();
+    // freshly founded: empty roster, only the 200g founding grant
+    const founded = {
+      version: 4 as const, name: "New Club", sigil: "⛓", gold: 200, renown: 0, materials: 0,
+      buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
+      runs: [], graveyard: [], bestDepth: 0, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
+      league: initLeague("New Club"), roster: [], disbandments: 0, bestLeagueLevel: 7, fixturesThisIncarnation: 0,
+    };
+    expect(checkDisbandment(founded)).toBeNull();
+
+    // a club that collapsed nearly penniless still gets floored to an affordable rebuild
+    const nearlyBroke = { ...founded, gold: 1, fixturesThisIncarnation: 8 };
+    disbandAndRebuild(nearlyBroke, "Reborn");
+    expect(checkDisbandment(nearlyBroke)).toBeNull(); // does NOT immediately re-trigger gridlock or the wipe check
   });
 
   it("severe debt forces a rebuild even mid-winning-streak; ordinary finances don't", async () => {
@@ -584,7 +623,7 @@ describe("disbandment", () => {
       version: 4 as const, name: "Debt Club", sigil: "⛓", gold: -50, renown: 0, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 2, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league, roster: [{} as never], disbandments: 0, bestLeagueLevel: 7,
+      league, roster: [{} as never, {} as never, {} as never], disbandments: 0, bestLeagueLevel: 7, fixturesThisIncarnation: 1,
     };
     expect(checkDisbandment(base)).toBeNull(); // -50 is a manageable dip
     expect(checkDisbandment({ ...base, gold: -300 })).toBeTruthy(); // -300 is severe debt regardless of form
@@ -610,7 +649,7 @@ describe("season dungeon", () => {
       version: 4 as const, name: "Spec Test", sigil: "⛓", gold: 0, renown: 0, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0, academy: 0 },
       runs: [], graveyard: [], bestDepth: 0, bestBanked: 0, totalBanked: 0, retires: 0, founded: Date.now(),
-      league, roster: [], disbandments: 0, bestLeagueLevel: 7,
+      league, roster: [], disbandments: 0, bestLeagueLevel: 7, fixturesThisIncarnation: 1,
     };
     applyGuildToConfig(g);
     const spec = dungeonSpecForLevel(1);
@@ -707,5 +746,88 @@ describe("wages and the Sump School", () => {
       lvl3 += statTotal(rollAcademyProspect(new RNG(`al3-${i}`), 3).character);
     }
     expect(lvl3 / trials).toBeGreaterThan(lvl0 / trials);
+  });
+});
+
+/** a minimal in-memory localStorage — the real one isn't present under Node/vitest */
+function mockLocalStorage() {
+  const store = new Map<string, string>();
+  return {
+    getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+    setItem: (k: string, v: string) => {
+      store.set(k, v);
+    },
+    removeItem: (k: string) => {
+      store.delete(k);
+    },
+    clear: () => store.clear(),
+    key: (i: number) => [...store.keys()][i] ?? null,
+    get length() {
+      return store.size;
+    },
+  } as Storage;
+}
+
+describe("save slots", () => {
+  it("each of the 3 slots is an independent save — playing one never touches another", async () => {
+    const original = (globalThis as { localStorage?: Storage }).localStorage;
+    (globalThis as { localStorage?: Storage }).localStorage = mockLocalStorage();
+    try {
+      const { setActiveSlot, saveGuild, loadGuildSlot, foundGuild, listSlotSummaries, deleteSlotSave } = await import(
+        "../game/guild"
+      );
+
+      setActiveSlot(1);
+      const a = loadGuildSlot(1);
+      foundGuild(a, "Club A", "⛓");
+      saveGuild(a);
+
+      setActiveSlot(2);
+      const b = loadGuildSlot(2);
+      foundGuild(b, "Club B", "✦");
+      b.gold += 500;
+      saveGuild(b);
+
+      // slot 3 never touched — stays empty
+      let summaries = listSlotSummaries();
+      expect(summaries.find((s) => s.slot === 1)?.name).toBe("Club A");
+      expect(summaries.find((s) => s.slot === 2)?.name).toBe("Club B");
+      expect(summaries.find((s) => s.slot === 3)?.exists).toBe(false);
+
+      // reloading slot 1 gets Club A back untouched by whatever happened to slot 2
+      expect(loadGuildSlot(1).name).toBe("Club A");
+      expect(loadGuildSlot(1).gold).toBe(200); // just the founding grant, no +500
+      expect(loadGuildSlot(2).gold).toBe(700);
+
+      deleteSlotSave(2);
+      summaries = listSlotSummaries();
+      expect(summaries.find((s) => s.slot === 2)?.exists).toBe(false);
+      expect(summaries.find((s) => s.slot === 1)?.exists).toBe(true); // untouched by deleting a different slot
+    } finally {
+      (globalThis as { localStorage?: Storage }).localStorage = original;
+    }
+  });
+
+  it("migrates a pre-slots single save into Slot 1 exactly once", async () => {
+    const original = (globalThis as { localStorage?: Storage }).localStorage;
+    (globalThis as { localStorage?: Storage }).localStorage = mockLocalStorage();
+    try {
+      const { setActiveSlot, saveGuild, loadGuildSlot } = await import("../game/guild");
+      // simulate a save written before slots existed, at the old unsuffixed key
+      setActiveSlot(1);
+      const g = loadGuildSlot(1);
+      g.name = "Old Club";
+      g.gold = 42;
+      localStorage.setItem("gordion-guild-v2", JSON.stringify(g));
+      void saveGuild; // (unused here — the point is the raw legacy key, not the active-slot path)
+
+      const migrated = loadGuildSlot(1);
+      expect(migrated.name).toBe("Old Club");
+      expect(migrated.gold).toBe(42);
+      expect(localStorage.getItem("gordion-guild-v2")).toBeNull(); // migrated away, not left behind
+      expect(localStorage.getItem("gordion-guild-v2-slot1")).not.toBeNull();
+    } finally {
+      (globalThis as { localStorage?: Storage }).localStorage = original;
+    }
   });
 });

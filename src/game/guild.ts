@@ -4,6 +4,7 @@
  */
 import { RUN_CONFIG, resetConfig } from "./config";
 import { divisionOf, dungeonSpecForLevel, initLeague, LeagueState, MAX_LEVEL, playerClub, resetPlayerClub } from "./league";
+import { ACADEMY_COST } from "./recruitment";
 import { Character } from "./types";
 
 export type BuildingId =
@@ -54,6 +55,8 @@ export interface Guild {
   disbandments: number;
   /** best (lowest-numbered) league level ever reached — never improves on relegation, gates the priciest buildings */
   bestLeagueLevel: number;
+  /** fixtures played since founding/the last rebuild — distinguishes "just founded, roster's empty" from "was staffed, got wiped" */
+  fixturesThisIncarnation: number;
 }
 
 export interface Building {
@@ -188,6 +191,21 @@ export const SIGILS = ["⛓", "✦", "☗", "⚔", "☠", "◆", "✠", "⚜", "
 
 const KEY = "gordion-guild-v2";
 const LEGACY = "gordion-meta-v1";
+export const SAVE_SLOTS = [1, 2, 3] as const;
+export type SaveSlot = (typeof SAVE_SLOTS)[number];
+
+function keyForSlot(slot: number): string {
+  return `${KEY}-slot${slot}`;
+}
+
+/** which slot loadGuild()/saveGuild() read and write — set once from the main menu */
+let activeSlot: SaveSlot = 1;
+export function setActiveSlot(slot: SaveSlot): void {
+  activeSlot = slot;
+}
+export function getActiveSlot(): SaveSlot {
+  return activeSlot;
+}
 
 function blankGuild(): Guild {
   return {
@@ -209,48 +227,120 @@ function blankGuild(): Guild {
     roster: [],
     disbandments: 0,
     bestLeagueLevel: MAX_LEVEL,
+    fixturesThisIncarnation: 0,
   };
 }
 
-export function loadGuild(): Guild {
+/**
+ * One-time migration: a save from before multiple slots existed (plain
+ * `gordion-guild-v2`, no slot suffix) becomes Slot 1, so nobody's progress
+ * vanishes the first time this build loads. No-ops instantly on every
+ * later call once that key is gone.
+ */
+function migrateLegacySingleSave(): void {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const g: Guild = { ...blankGuild(), ...JSON.parse(raw), version: 4 };
-      // pre-league-rework saves carry an incompatible `league` shape — reinit rather
-      // than patch it field-by-field (no real stakes yet, this is a playtest save)
-      if (!g.league || typeof g.league.season !== "number") g.league = initLeague(g.name ?? "Unnamed Club");
-      return g;
+    if (localStorage.getItem(keyForSlot(1)) !== null) return; // slot 1 already has its own save
+    const old = localStorage.getItem(KEY);
+    if (old !== null) {
+      localStorage.setItem(keyForSlot(1), old);
+      localStorage.removeItem(KEY);
     }
   } catch {
     /* ignore */
   }
-  // migrate a v1 meta save if present (keeps records; still needs founding)
+}
+
+function readSlotRaw(slot: number): Guild | null {
   try {
-    const old = localStorage.getItem(LEGACY);
-    if (old) {
-      const m = JSON.parse(old);
-      const g = blankGuild();
-      g.runs = m.runs ?? [];
-      g.graveyard = m.graveyard ?? [];
-      g.bestDepth = m.bestDepth ?? 0;
-      g.bestBanked = m.bestBanked ?? 0;
-      g.totalBanked = m.totalBanked ?? 0;
-      g.gold = Math.round((m.totalBanked ?? 0) * 0.25);
-      saveGuild(g);
-      return g;
-    }
+    const raw = localStorage.getItem(keyForSlot(slot));
+    if (!raw) return null;
+    const g: Guild = { ...blankGuild(), ...JSON.parse(raw), version: 4 };
+    // pre-league-rework saves carry an incompatible `league` shape — reinit rather
+    // than patch it field-by-field (no real stakes yet, this is a playtest save)
+    if (!g.league || typeof g.league.season !== "number") g.league = initLeague(g.name ?? "Unnamed Club");
+    return g;
   } catch {
-    /* ignore */
+    return null;
+  }
+}
+
+export function loadGuildSlot(slot: SaveSlot): Guild {
+  migrateLegacySingleSave();
+  const g = readSlotRaw(slot);
+  if (g) return g;
+  // only Slot 1 inherits the pre-slots v1 meta save (there's no slot to guess for it otherwise)
+  if (slot === 1) {
+    try {
+      const old = localStorage.getItem(LEGACY);
+      if (old) {
+        const m = JSON.parse(old);
+        const blank = blankGuild();
+        blank.runs = m.runs ?? [];
+        blank.graveyard = m.graveyard ?? [];
+        blank.bestDepth = m.bestDepth ?? 0;
+        blank.bestBanked = m.bestBanked ?? 0;
+        blank.totalBanked = m.totalBanked ?? 0;
+        blank.gold = Math.round((m.totalBanked ?? 0) * 0.25);
+        localStorage.setItem(keyForSlot(1), JSON.stringify(blank));
+        return blank;
+      }
+    } catch {
+      /* ignore */
+    }
   }
   return blankGuild();
 }
 
+/** loads/saves whichever slot setActiveSlot() last selected */
+export function loadGuild(): Guild {
+  return loadGuildSlot(activeSlot);
+}
+
 export function saveGuild(g: Guild): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(g));
+    localStorage.setItem(keyForSlot(activeSlot), JSON.stringify(g));
   } catch {
     /* private mode */
+  }
+}
+
+export interface SlotSummary {
+  slot: SaveSlot;
+  exists: boolean;
+  name: string | null;
+  sigil: string;
+  gold: number;
+  bestDepth: number;
+  leagueLevel: number;
+  disbandments: number;
+  founded: number;
+}
+
+/** a lightweight peek at every slot, for the main menu — never touches the active slot */
+export function listSlotSummaries(): SlotSummary[] {
+  migrateLegacySingleSave();
+  return SAVE_SLOTS.map((slot) => {
+    const g = readSlotRaw(slot);
+    if (!g || !g.name) return { slot, exists: false, name: null, sigil: SIGILS[0], gold: 0, bestDepth: 0, leagueLevel: MAX_LEVEL, disbandments: 0, founded: 0 };
+    return {
+      slot,
+      exists: true,
+      name: g.name,
+      sigil: g.sigil,
+      gold: g.gold,
+      bestDepth: g.bestDepth,
+      leagueLevel: divisionOf(g.league).level,
+      disbandments: g.disbandments,
+      founded: g.founded,
+    };
+  });
+}
+
+export function deleteSlotSave(slot: SaveSlot): void {
+  try {
+    localStorage.removeItem(keyForSlot(slot));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -334,6 +424,7 @@ export function recordRun(
   g.bestBanked = Math.max(g.bestBanked, run.banked);
   g.totalBanked += Math.max(0, run.banked);
   g.bestLeagueLevel = Math.min(g.bestLeagueLevel, divisionOf(g.league).level);
+  g.fixturesThisIncarnation += 1;
   // wages can push this negative — a club can go into debt, same as any club that can't make payroll
   g.gold += run.net;
   if (run.outcome === "retired") {
@@ -346,14 +437,28 @@ export function recordRun(
 const SEVERE_DEBT = -300;
 
 /**
- * Is the club in trouble? Checked after every fixture resolves. Any one of
- * three conditions forces a rebuild:
- *  - total wipe: nobody survived, there's no one left to field
- *  - financial collapse: broke, and the last three fixtures were losses
+ * Is the club in trouble? Any one of four conditions forces a rebuild:
+ *  - total wipe: nobody survived a fixture, there's no one left to field
+ *    (guarded on `fixturesThisIncarnation` so a freshly founded/rebuilt
+ *    club — roster empty because it hasn't signed anyone yet — never
+ *    trips this)
+ *  - gridlock: short on roster, and too broke to cover even the Sump
+ *    School's flat fee for the gap — no route back to a fieldable squad,
+ *    ever, since nothing earns gold without playing a fixture first
  *  - severe debt: too far underwater on wages to ever dig out
+ *  - financial collapse: broke, and the last three fixtures were losses
+ * Safe to call proactively (e.g. every time the Settlement screen loads),
+ * not just right after a fixture resolves — a building purchase can create
+ * the gridlock condition just as easily as a bad run can.
  */
 export function checkDisbandment(g: Guild): string | null {
-  if (g.roster.length === 0) return "The roster was wiped out — there's no one left to field.";
+  if (g.fixturesThisIncarnation > 0 && g.roster.length === 0) {
+    return "The roster was wiped out — there's no one left to field.";
+  }
+  const short = Math.max(0, RUN_CONFIG.partySize - g.roster.length);
+  if (short > 0 && g.gold < ACADEMY_COST * short) {
+    return "The roster is short and the treasury can't cover even the Sump School's fees — there's no way to field a full squad again.";
+  }
   if (g.gold <= SEVERE_DEBT) return "The club is too deep in debt on wages to ever make payroll again.";
   const player = playerClub(g.league);
   const recent = player.form.slice(-3);
@@ -367,13 +472,18 @@ export function checkDisbandment(g: Guild): string | null {
  * Force a rebuild: the roster is gone, most of the treasury is gone, the
  * club drops to the bottom division and its league record resets. Guild
  * history — the graveyard, past runs, best depth — is kept; the Pit
- * remembers, even when a club doesn't survive it.
+ * remembers, even when a club doesn't survive it. Gold is floored at
+ * enough to bootstrap a full roster through the Sump School alone —
+ * exactly the same guarantee a freshly founded club gets — so a rebuild
+ * can never immediately re-trigger the gridlock condition it was meant
+ * to escape.
  */
 export function disbandAndRebuild(g: Guild, newName: string): void {
   g.roster = [];
-  g.gold = Math.round(g.gold * 0.2);
+  g.gold = Math.max(Math.round(g.gold * 0.2), ACADEMY_COST * RUN_CONFIG.partySize);
   g.renown = Math.round(g.renown * 0.5);
   g.disbandments += 1;
+  g.fixturesThisIncarnation = 0;
   g.name = newName.slice(0, 28) || "The Gordion Pit";
   resetPlayerClub(g.league, g.name);
   saveGuild(g);

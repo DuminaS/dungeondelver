@@ -7,10 +7,6 @@ import { unitFromCharacter } from "./units";
 import { bossForDepth, MONSTERS } from "./data";
 import { RUN_CONFIG } from "./config";
 
-// legacy defaults (used only as fallbacks in UI text before a run exists)
-export const DRAFT_POOL_SIZE = 3;
-export const PARTY_SIZE = 3;
-
 export class Run {
   state: RunState;
   private rng: RNG;
