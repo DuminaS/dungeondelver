@@ -30,7 +30,7 @@ import {
   upgradeBlocked,
   upgradeCost,
 } from "./game/guild";
-import { ClubStanding, DIVISIONS, PROMOTE_SLOTS, RELEGATE_SLOTS, SEASON_LENGTH, divisionOf, playerRank, recordFixture, standings } from "./game/league";
+import { ClubStanding, MAX_LEVEL, PROMOTE_SLOTS, RELEGATE_SLOTS, SEASON_LENGTH, divisionOf, divisionsAtLevel, playerRank, recordFixture, standings } from "./game/league";
 import { MarketRecruit, rollMarket } from "./game/recruitment";
 import { Run, EncounterReport } from "./game/descent";
 import { Encounter } from "./game/encounter";
@@ -503,12 +503,16 @@ function renderStandings(): void {
   <div class="wrap col">
     <div class="spread">
       <div><div class="eyebrow">The League — Season ${guild.league.season}</div><h1>${esc(div.name)}</h1></div>
-      <span class="sub">Division ${div.tier} of ${DIVISIONS.length} · fee ${Math.round(div.feePct * 100)}% of gold earned per fixture · ${fixturesLeft} fixture${fixturesLeft === 1 ? "" : "s"} left this season</span>
+      <span class="sub">Level ${div.level} of ${MAX_LEVEL} · fee ${Math.round(div.feePct * 100)}% of gold earned per fixture · ${fixturesLeft} fixture${fixturesLeft === 1 ? "" : "s"} left this season</span>
     </div>
 
-    <div class="ladder">${DIVISIONS.map(
-      (d) => `<span class="ladder__rung ${d.id === div.id ? "ladder__rung--here" : ""}">${esc(d.name)}</span>`,
-    ).join(`<span class="ladder__arrow">${icon("chevron")}</span>`)}</div>
+    <div class="ladder">${Array.from({ length: MAX_LEVEL }, (_, i) => MAX_LEVEL - i)
+      .map((lvl) => {
+        const groups = divisionsAtLevel(lvl);
+        const here = groups.some((g) => g.id === div.id);
+        return `<span class="ladder__rung ${here ? "ladder__rung--here" : ""}" title="Level ${lvl}">${esc(groups.map((g) => g.name).join(" / "))}</span>`;
+      })
+      .join(`<span class="ladder__arrow">${icon("chevron")}</span>`)}</div>
 
     <p class="sub">Top ${PROMOTE_SLOTS} of the table promote at season's end; bottom ${RELEGATE_SLOTS} relegate — except at the very top or bottom of the pyramid.</p>
 
@@ -660,7 +664,7 @@ function renderDisband(): void {
         ${stat("star", player.careerClears, "", "career clears")}
         ${stat("skull", g.graveyard.length, "bad", "names in the Hall of the Dead")}
       </div>
-      <p class="sub">The roster disbands and most of the treasury is lost. The Ledger — records, the dead, past runs — survives; the club drops to ${esc(DIVISIONS[0].name)} and starts its league record fresh.</p>
+      <p class="sub">The roster disbands and most of the treasury is lost. The Ledger — records, the dead, past runs — survives; the club drops to the bottom of the pyramid (Level ${MAX_LEVEL}) and starts its league record fresh.</p>
     </div>
 
     <div class="panel col">

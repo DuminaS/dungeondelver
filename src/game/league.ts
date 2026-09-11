@@ -1,47 +1,71 @@
 /**
  * The League — the competitive layer around the run.
  *
- * A run *is* a fixture: your club enters the Pit, and however it ends
- * (extraction or wipe) is reported to the table alongside every rival
- * club's own (lightly simulated) fixture that round, across all four
- * divisions. Ranking within a division is:
- *   1. clears   2. gold earned   3. net gold after the league fee
- *   4. squad health   5. reputation
- * Every `SEASON_LENGTH` fixtures the season settles: top of your
- * division promotes, bottom relegates, and every club's season-to-date
- * numbers reset (career totals persist). League standing is purely
- * bookkeeping on top of runs that already happened — it never touches
- * combat, XP, or leveling.
+ * The pyramid mirrors the real English football league system: 4 "pro"
+ * divisions of 20-24 clubs each, then progressively wider amateur tiers
+ * below — a single Level 5, Level 6 splitting into two parallel regional
+ * groups, Level 7 splitting into four. Only the player's club is ever
+ * promoted/relegated between groups; every rival stays in its home group
+ * for good, but all of them (roughly 240 clubs, across every level) roll a
+ * lightly-simulated fixture the moment the player's own resolves, so the
+ * whole pyramid stays alive even far from wherever the player is standing.
+ *
+ * A run *is* a fixture. Ranking within a division (one table = one group)
+ * is: 1. clears  2. gold earned  3. net gold after the league fee
+ * 4. squad health  5. reputation. Every `SEASON_LENGTH` fixtures the
+ * season settles: top of the player's table promotes, bottom relegates
+ * (when a destination level has more than one group, which one is picked
+ * at random — there's no geography to sort it by), and every club's
+ * season-to-date numbers reset (career totals persist). League standing
+ * is purely bookkeeping on top of runs that already happened — it never
+ * touches combat, XP, or leveling.
  */
 import { RNG } from "../core/rng";
 
 export interface Division {
   id: string;
   name: string;
-  tier: number; // 1 = top flight
+  level: number; // 1 = top flight ... MAX_LEVEL = bottom of the pyramid
   /** cut of a fixture's gold the league takes, 0..1 */
   feePct: number;
+  /** the real-world club count this level models, for flavor text only */
+  realSize: number;
 }
 
-// tier 4 (entry) -> tier 1 (top): fee rises with prestige, same as prize money would
+// Level 1-4 mirror the Premier League / Championship / League One / League
+// Two; Level 5-7 mirror the National League System's Step 1-3 (a single
+// national tier, then it fans out into regional groups).
 export const DIVISIONS: Division[] = [
-  { id: "salvage", name: "Salvage Rounds", tier: 4, feePct: 0.1 },
-  { id: "prospect", name: "Prospect Wards", tier: 3, feePct: 0.14 },
-  { id: "lowerpit", name: "Lower Pit Circuit", tier: 2, feePct: 0.18 },
-  { id: "deepvault", name: "Deep Vault League", tier: 1, feePct: 0.22 },
+  { id: "deepvault", name: "Deep Vault League", level: 1, feePct: 0.22, realSize: 20 },
+  { id: "lowerpit", name: "Lower Pit Circuit", level: 2, feePct: 0.18, realSize: 24 },
+  { id: "prospect", name: "Prospect Wards", level: 3, feePct: 0.14, realSize: 24 },
+  { id: "salvage", name: "Salvage Rounds", level: 4, feePct: 0.1, realSize: 24 },
+  { id: "opendelve", name: "Open Delve League", level: 5, feePct: 0.08, realSize: 24 },
+  { id: "opendelve-n", name: "Open Delve North", level: 6, feePct: 0.06, realSize: 24 },
+  { id: "opendelve-s", name: "Open Delve South", level: 6, feePct: 0.06, realSize: 24 },
+  { id: "circuit-ashfall", name: "Ashfall Circuit", level: 7, feePct: 0.04, realSize: 22 },
+  { id: "circuit-bonewarren", name: "Bonewarren Circuit", level: 7, feePct: 0.04, realSize: 22 },
+  { id: "circuit-rimefall", name: "Rimefall Circuit", level: 7, feePct: 0.04, realSize: 22 },
+  { id: "circuit-duskmarch", name: "Duskmarch Circuit", level: 7, feePct: 0.04, realSize: 22 },
 ];
 
+export const MAX_LEVEL = Math.max(...DIVISIONS.map((d) => d.level));
 export const SEASON_LENGTH = 6; // fixtures per season before promotion/relegation settles
-const RIVALS_PER_DIVISION = 5;
 export const PROMOTE_SLOTS = 2; // top N of a division promote (except from the top division)
 export const RELEGATE_SLOTS = 2; // bottom N relegate (except from the bottom division)
 
-function divisionByTier(tier: number): Division {
-  return DIVISIONS.find((d) => d.tier === tier) ?? DIVISIONS[DIVISIONS.length - 1];
+export function divisionById(id: string): Division {
+  return DIVISIONS.find((d) => d.id === id) ?? DIVISIONS[DIVISIONS.length - 1];
 }
 
-export function divisionById(id: string): Division {
-  return DIVISIONS.find((d) => d.id === id) ?? DIVISIONS[0];
+/** every group (division) that makes up one level of the pyramid, e.g. the two Level 6 regionals */
+export function divisionsAtLevel(level: number): Division[] {
+  return DIVISIONS.filter((d) => d.level === level);
+}
+
+function pickDivisionAtLevel(rng: RNG, level: number): Division {
+  const options = divisionsAtLevel(level);
+  return options.length === 1 ? options[0] : rng.pick(options);
 }
 
 export interface ClubStanding {
@@ -73,13 +97,24 @@ export interface LeagueState {
   clubs: ClubStanding[]; // every club in every division, each stamped with its own divisionId
 }
 
-const RIVAL_NAMES = [
-  "The Ashfall Wardens", "Cinderhold Regulars", "The Bonepickers", "Grimspar Company",
-  "The Hollow Chain", "Rustlatch Crew", "Duskmarch Company", "The Saltmaw Guard",
-  "Ironveil Retainers", "The Wraithgate Nine", "Emberwrack Irregulars", "The Ninefinger Trade",
-  "Coalbrook Diggers", "The Sump Runners", "Gravehollow Band", "The Chained Oath",
-  "Quenchfire Crew", "The Marrow Pickets", "Farrowdeep Company", "The Rimefall Watch",
+// club names as [descriptor] + [group noun] — sampled without replacement
+// across the whole pyramid so no two clubs anywhere share a name
+const NAME_A = [
+  "Ashfall", "Cinderhold", "Bonepicker", "Grimspar", "Hollowgate", "Rustlatch",
+  "Duskmarch", "Saltmaw", "Ironveil", "Wraithgate", "Emberwrack", "Ninefinger",
+  "Coalbrook", "Sumpwater", "Gravehollow", "Chainbound", "Quenchfire", "Marrowpit",
+  "Farrowdeep", "Rimefall", "Blackreach", "Cinderpath", "Hollowvein", "Stonewick",
 ];
+const NAME_B = [
+  "Wardens", "Regulars", "Company", "Crew", "Nine", "Trade", "Diggers", "Runners",
+  "Band", "Oath", "Watch", "Pickets", "Guard", "Irregulars", "Retainers", "Reserves",
+];
+
+function nameSupply(rng: RNG, count: number): string[] {
+  const combos: string[] = [];
+  for (const a of NAME_A) for (const b of NAME_B) combos.push(`${a} ${b}`);
+  return rng.shuffle(combos).slice(0, count);
+}
 
 function blankStanding(
   id: string,
@@ -113,21 +148,28 @@ function blankStanding(
 
 /**
  * A fresh league, seeded once when a club first enters: every division gets
- * its own small pool of rival clubs (rivals stay parked in their home
- * division — only the player's club is ever promoted/relegated), and the
- * player's club starts at the bottom of the pyramid.
+ * a rival roster sized to (roughly) its real-world club count minus one —
+ * the seat the player fills whenever they're standing in that group. Rivals
+ * stay parked in their home division for good; only the player's club is
+ * ever promoted/relegated. The player starts in a random Level 7 circuit —
+ * the very bottom of the pyramid.
  */
 export function initLeague(clubName: string): LeagueState {
   const rng = new RNG(`league-init:${clubName}:${Date.now()}`);
-  const pool = rng.shuffle(RIVAL_NAMES);
-  const clubs: ClubStanding[] = [blankStanding("player", clubName, true, DIVISIONS[0].id, 0.5, 3)];
+  const totalRivals = DIVISIONS.reduce((s, d) => s + (d.realSize - 1), 0);
+  const names = nameSupply(rng, totalRivals);
   let n = 0;
+
+  const clubs: ClubStanding[] = [];
   for (const div of DIVISIONS) {
-    for (let i = 0; i < RIVALS_PER_DIVISION; i++) {
-      const name = pool[n++ % pool.length];
-      clubs.push(blankStanding(`rival:${div.id}:${i}`, name, false, div.id, rng.range(0.2, 0.9), rng.int(3, 6)));
+    const count = div.realSize - 1;
+    for (let i = 0; i < count; i++) {
+      clubs.push(blankStanding(`rival:${div.id}:${i}`, names[n++], false, div.id, rng.range(0.2, 0.9), rng.int(3, 6)));
     }
   }
+
+  const start = pickDivisionAtLevel(rng, MAX_LEVEL);
+  clubs.unshift(blankStanding("player", clubName, true, start.id, 0.5, 3));
   return { season: 1, round: 0, clubs };
 }
 
@@ -191,19 +233,19 @@ export function playerRank(league: LeagueState): number {
   return standings(league, div.id).findIndex((c) => c.isPlayer) + 1;
 }
 
-function settleSeason(league: LeagueState): { promoted: boolean; relegated: boolean; newDivisionId: string } {
+function settleSeason(rng: RNG, league: LeagueState): { promoted: boolean; relegated: boolean; newDivisionId: string } {
   const player = playerClub(league);
   const table = standings(league, player.divisionId);
   const rank = table.findIndex((c) => c.isPlayer) + 1;
-  const tier = divisionById(player.divisionId).tier;
+  const level = divisionById(player.divisionId).level;
 
   let promoted = false;
   let relegated = false;
-  if (rank <= PROMOTE_SLOTS && tier > 1) {
-    player.divisionId = divisionByTier(tier - 1).id;
+  if (rank <= PROMOTE_SLOTS && level > 1) {
+    player.divisionId = pickDivisionAtLevel(rng, level - 1).id;
     promoted = true;
-  } else if (rank > table.length - RELEGATE_SLOTS && tier < DIVISIONS.length) {
-    player.divisionId = divisionByTier(tier + 1).id;
+  } else if (rank > table.length - RELEGATE_SLOTS && level < MAX_LEVEL) {
+    player.divisionId = pickDivisionAtLevel(rng, level + 1).id;
     relegated = true;
   }
 
@@ -256,7 +298,7 @@ export function recordFixture(
 
   const seasonEnded = league.round % SEASON_LENGTH === 0;
   if (seasonEnded) {
-    const { promoted, relegated, newDivisionId } = settleSeason(league);
+    const { promoted, relegated, newDivisionId } = settleSeason(rng.fork("season"), league);
     return { fee, net, seasonEnded, promoted, relegated, newDivisionId };
   }
   return { fee, net, seasonEnded, promoted: false, relegated: false, newDivisionId: player.divisionId };
@@ -264,14 +306,15 @@ export function recordFixture(
 
 /**
  * Reset the league for a rebuilt club after disbandment: the player's club
- * drops to the bottom division, its season-to-date and career fixture stats
- * clear, and every rival keeps playing undisturbed (the pyramid doesn't
- * pause for your collapse).
+ * drops to a random Level-7 circuit (the very bottom of the pyramid), its
+ * season-to-date and career fixture stats clear, and every rival keeps
+ * playing undisturbed (the pyramid doesn't pause for your collapse).
  */
 export function resetPlayerClub(league: LeagueState, newName: string): void {
   const player = playerClub(league);
+  const rng = new RNG(`disband:${newName}:${league.round}`);
   player.name = newName;
-  player.divisionId = DIVISIONS[0].id;
+  player.divisionId = pickDivisionAtLevel(rng, MAX_LEVEL).id;
   player.clears = 0;
   player.losses = 0;
   player.floorsCleared = 0;

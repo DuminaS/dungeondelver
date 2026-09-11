@@ -348,19 +348,22 @@ describe("full run simulation", () => {
 });
 
 describe("league", () => {
-  it("initLeague seeds one player club plus five rivals per division, player starting at the bottom", async () => {
-    const { initLeague, DIVISIONS, divisionOf } = await import("../game/league");
+  it("initLeague mirrors the real pyramid: every division sized (realSize - 1) rivals, player starting at the bottom", async () => {
+    const { initLeague, DIVISIONS, MAX_LEVEL, divisionOf } = await import("../game/league");
     const league = initLeague("Test Club");
-    expect(league.clubs.length).toBe(1 + 5 * DIVISIONS.length);
+    const expectedTotal = 1 + DIVISIONS.reduce((s, d) => s + (d.realSize - 1), 0);
+    expect(league.clubs.length).toBe(expectedTotal);
     const player = league.clubs.filter((c) => c.isPlayer);
     expect(player.length).toBe(1);
     expect(player[0].name).toBe("Test Club");
     expect(new Set(league.clubs.map((c) => c.id)).size).toBe(league.clubs.length); // unique ids
-    // every division is populated
+    expect(new Set(league.clubs.map((c) => c.name)).size).toBe(league.clubs.length); // unique names too
+    // every division is populated to (realSize - 1) rivals, +1 wherever the player sits
     for (const div of DIVISIONS) {
-      expect(league.clubs.filter((c) => c.divisionId === div.id).length).toBeGreaterThanOrEqual(5);
+      const n = league.clubs.filter((c) => c.divisionId === div.id).length;
+      expect(n).toBe(div.realSize - 1 + (div.id === divisionOf(league).id ? 1 : 0));
     }
-    expect(divisionOf(league).tier).toBe(DIVISIONS.length); // starts in the bottom division
+    expect(divisionOf(league).level).toBe(MAX_LEVEL); // starts at the bottom of the pyramid
   });
 
   it("recordFixture deducts the division's fee and credits clears/points on a clear", async () => {
@@ -430,12 +433,23 @@ describe("league", () => {
     expect(ranked[1].id).toBe("b");
   });
 
-  it("fee tiers rise with division prestige (tier 4 cheapest, tier 1 dearest)", async () => {
+  it("fee rises with prestige — Level 1 dearest, deeper levels cheaper", async () => {
     const { DIVISIONS } = await import("../game/league");
-    const byTier = [...DIVISIONS].sort((a, b) => a.tier - b.tier);
-    for (let i = 1; i < byTier.length; i++) {
-      expect(byTier[i].feePct).toBeLessThan(byTier[i - 1].feePct);
+    const byLevel = [...DIVISIONS].sort((a, b) => a.level - b.level);
+    for (let i = 1; i < byLevel.length; i++) {
+      expect(byLevel[i].feePct).toBeLessThanOrEqual(byLevel[i - 1].feePct);
     }
+    expect(byLevel[0].feePct).toBeGreaterThan(byLevel[byLevel.length - 1].feePct);
+  });
+
+  it("the pyramid widens toward the bottom, and Levels 6/7 split into parallel regional groups", async () => {
+    const { DIVISIONS, MAX_LEVEL, divisionsAtLevel } = await import("../game/league");
+    expect(MAX_LEVEL).toBe(7);
+    expect(divisionsAtLevel(1).length).toBe(1);
+    expect(divisionsAtLevel(6).length).toBe(2); // Open Delve North/South
+    expect(divisionsAtLevel(7).length).toBe(4); // four circuits
+    const totalRealClubs = DIVISIONS.reduce((s, d) => s + d.realSize, 0);
+    expect(totalRealClubs).toBeGreaterThan(240); // mirrors the real pyramid's scale, not just the top 4
   });
 
   it("promotes a dominant club and relegates a winless one at season's end", async () => {
@@ -467,17 +481,17 @@ describe("league", () => {
     void DIVISIONS;
   });
 
-  it("resetPlayerClub drops the club to the bottom division and clears its record", async () => {
-    const { initLeague, recordFixture, resetPlayerClub, playerClub, divisionOf, DIVISIONS, SEASON_LENGTH } = await import(
+  it("resetPlayerClub drops the club to the bottom of the pyramid and clears its record", async () => {
+    const { initLeague, recordFixture, resetPlayerClub, playerClub, divisionOf, MAX_LEVEL, SEASON_LENGTH } = await import(
       "../game/league"
     );
     const league = initLeague("Collapse Test");
     for (let i = 0; i < SEASON_LENGTH; i++) {
       recordFixture(league, { cleared: true, floorsCleared: 10, goldEarned: 999999, squadHealth: 3, reputation: 0 });
     }
-    expect(divisionOf(league).tier).toBeLessThan(DIVISIONS.length); // promoted out of the bottom
+    expect(divisionOf(league).level).toBeLessThan(MAX_LEVEL); // promoted out of the bottom
     resetPlayerClub(league, "Reborn Club");
-    expect(divisionOf(league).tier).toBe(DIVISIONS.length);
+    expect(divisionOf(league).level).toBe(MAX_LEVEL);
     expect(playerClub(league).clears).toBe(0);
     expect(playerClub(league).careerClears).toBe(0);
     expect(playerClub(league).name).toBe("Reborn Club");
@@ -539,9 +553,9 @@ describe("disbandment", () => {
 
   it("disbandAndRebuild keeps history but resets the roster, most of the treasury, and league position", async () => {
     const { disbandAndRebuild } = await import("../game/guild");
-    const { initLeague, divisionOf, DIVISIONS, playerClub } = await import("../game/league");
+    const { initLeague, divisionOf, DIVISIONS, MAX_LEVEL, playerClub } = await import("../game/league");
     const league = initLeague("Doomed Club");
-    playerClub(league).divisionId = DIVISIONS[1].id; // pretend they'd climbed a tier
+    playerClub(league).divisionId = DIVISIONS.find((d) => d.level === 1)!.id; // pretend they'd climbed to the top
     const g = {
       version: 4 as const, name: "Doomed Club", sigil: "⛓", gold: 1000, renown: 100, materials: 0,
       buildings: { recruitment: 0, barracks: 0, training: 0, pedigree: 0, vault: 0, infirmary: 0, smithy: 0 },
@@ -554,7 +568,7 @@ describe("disbandment", () => {
     expect(g.name).toBe("New Name");
     expect(g.gold).toBeLessThan(1000);
     expect(g.disbandments).toBe(1);
-    expect(divisionOf(g.league).id).toBe(DIVISIONS[0].id); // dropped to the bottom
+    expect(divisionOf(g.league).level).toBe(MAX_LEVEL); // dropped to the bottom of the pyramid
     // history survives the collapse
     expect(g.runs.length).toBe(1);
     expect(g.graveyard.length).toBe(1);
