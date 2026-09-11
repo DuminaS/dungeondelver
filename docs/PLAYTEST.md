@@ -32,6 +32,7 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 | Deployment phase (full board info before you commit) | ✅ |
 | Random descent: 2–3 tagged floor choices, threat skulls, modifiers shown | ✅ (modifiers are cosmetic for now) |
 | **Bosses** — a boss gates every 5th Deep (no alternative floor offered); multi-phase (HP-threshold phase transitions with flavor text, stat buffs, summoned adds, and hazard fields), telegraphed-then-executed big AOE moves (a round of warning with marked tiles, then it lands), bumped XP/loot/Renown on the kill, guaranteed extraction floor right after. Two bosses authored so far: **The Warden** (Deep 5), **The Chainbroken King** (Deep 10) | ✅ |
+| **The League** — the club/team competitive layer. Every run is a fixture; a league fee (10% in the starting division) is cut from whatever gold that fixture banks before it lands in the treasury. A standings table (reachable from the Settlement and the Debrief screen) ranks your club against 5 rival clubs by clears → gold → net gold → squad health → reputation; rivals roll their own lightly-simulated fixture the moment yours resolves, so the table keeps moving. Leveling stays entirely combat-based — the league only ranks, it never grants XP | ✅ core loop (fee, standings, fixture reporting). **Not yet:** recruitment market, team disbandment, and promotion/relegation between the 4 divisions (Salvage Rounds → Prospect Wards → Lower Pit Circuit → Deep Vault League) — the club is parked in the entry division for now |
 | Permadeath, downed + death saves, weapon salvage on death | ✅ |
 | Per-chaindiver **XP** + level-ups (kill credit + objective share) | ✅ |
 | Extraction floors: bank gold / retire the warband | ✅ (partial extraction, tithe: not yet) |
@@ -39,7 +40,7 @@ The build version (semver · git sha · timestamp) is pinned in the **bottom-rig
 
 ## What's out (don't file bugs for these)
 
-Charters · Covenants · subclasses / feats · a real gear/inventory system (Smithy gives flat bonuses) · injuries persisting between runs · Rest/Market/Shrine/Vault *floors* (the Vault *building* is in) · floor modifiers doing anything · a real rewarded-ad SDK · sound · animation beyond redraws.
+Charters · Covenants · subclasses / feats · a real gear/inventory system (Smithy gives flat bonuses) · injuries persisting between runs · Rest/Market/Shrine/Vault *floors* (the Vault *building* is in) · floor modifiers doing anything · a real rewarded-ad SDK · sound · animation beyond redraws · league recruitment market · team disbandment · promotion/relegation between divisions.
 
 The interface language (palette, icon set, label map, board layers) is documented in [UI.md](UI.md).
 
@@ -63,4 +64,4 @@ The interface language (palette, icon set, label map, board layers) is documente
 
 ## Dev shortcuts
 
-`?dev=enc&seed=<seed>` jumps straight into a deployed encounter. `?dev=boss&seed=<seed>` jumps straight into a Deep-5 boss fight. Add `&rounds=N` to auto-play N rounds first (auto-attacks the lowest-HP target in range and otherwise walks toward the nearest enemy). For quick balance passes: `npm test` runs the headless multi-seed run simulation.
+`?dev=enc&seed=<seed>` jumps straight into a deployed encounter. `?dev=boss&seed=<seed>` jumps straight into a Deep-5 boss fight. Add `&rounds=N` to auto-play N rounds first (auto-attacks the lowest-HP target in range and otherwise walks toward the nearest enemy). `?dev=standings` jumps straight to the league table. `?dev=debrief&seed=<seed>` fast-forwards a full run to the Debrief screen with a league fixture result (add `&wipe=1` to see the loss/no-clear state instead of a clean extraction). For quick balance passes: `npm test` runs the headless multi-seed run simulation.

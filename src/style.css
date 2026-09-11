@@ -372,6 +372,40 @@ ul.keyed .ic { color: var(--gold); margin-top: 2px; }
 .pit-copy { display: flex; flex-direction: column; gap: 6px; }
 button.big { padding: 12px 20px; font-size: 15px; align-self: flex-start; margin-top: 4px; }
 
+/* ============================================================ league */
+.league-strip {
+  display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 14px;
+}
+.league-strip__rank { font: 700 15px/1.2 var(--font-display); color: var(--ink); margin-top: 2px; }
+
+.league-fixture { border-color: var(--player); }
+
+.standings-wrap { overflow-x: auto; border: 1px solid var(--iron); border-radius: var(--r); }
+table.standings { width: 100%; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+table.standings th, table.standings td { padding: 8px 11px; text-align: left; }
+table.standings thead th {
+  font: 600 10px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-faint); border-bottom: 1px solid var(--iron); background: var(--stone-2);
+}
+table.standings tbody tr { border-bottom: 1px solid var(--iron); }
+table.standings tbody tr:last-child { border-bottom: none; }
+table.standings tbody tr:hover { background: rgba(217,164,65,0.05); }
+.standings__row--me { background: rgba(217,164,65,0.09); }
+.standings__row--me:hover { background: rgba(217,164,65,0.13); }
+.standings__club { font-family: var(--font-display); font-weight: 600; color: var(--ink); }
+table.standings .rank-gold { color: var(--gold); font-weight: 700; }
+table.standings .rank-good { color: var(--good); }
+table.standings .rank-bad  { color: var(--bad); }
+
+.formrow { display: inline-flex; gap: 2px; }
+.formpip {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 3px;
+  font: 700 9px/1 var(--font-mono);
+}
+.formpip--w { background: rgba(134,167,88,0.22); color: var(--good); }
+.formpip--l { background: rgba(176,65,59,0.22); color: var(--bad); }
+
 .buildings { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .bcard {
   background: var(--stone); border: 1px solid var(--iron); border-radius: var(--r);

@@ -27,6 +27,7 @@ import {
   upgradeBlocked,
   upgradeCost,
 } from "./game/guild";
+import { ClubStanding, divisionOf, playerRank, recordFixture, standings } from "./game/league";
 import { Run, EncounterReport } from "./game/descent";
 import { Encounter } from "./game/encounter";
 import { BoardView } from "./ui/render";
@@ -37,7 +38,7 @@ import { classAccent } from "./ui/classColor";
 const VERSION = __APP_VERSION__;
 document.getElementById("build-badge")!.textContent = VERSION;
 
-type Phase = "found" | "settlement" | "draft" | "descent" | "encounter" | "aftermath" | "debrief";
+type Phase = "found" | "settlement" | "standings" | "draft" | "descent" | "encounter" | "aftermath" | "debrief";
 
 const app = document.getElementById("app")!;
 let guild: Guild = loadGuild();
@@ -47,6 +48,8 @@ let run: Run | null = null;
 let enc: Encounter | null = null;
 let board: BoardView | null = null;
 let report: EncounterReport | null = null;
+let fixtureResult: { cleared: boolean; gross: number; fee: number; net: number } | null = null;
+let standingsReturnPhase: Phase = "settlement";
 
 // ---- encounter interaction ----
 type Armed =
@@ -296,6 +299,7 @@ function render(): void {
   const map: Record<Phase, () => void> = {
     found: renderFound,
     settlement: renderSettlement,
+    standings: renderStandings,
     draft: renderDraft,
     descent: renderDescent,
     encounter: renderEncounter,
@@ -341,6 +345,8 @@ function renderFound(): void {
 
 function renderSettlement(): void {
   const g = guild;
+  const div = divisionOf(g.league);
+  const rank = playerRank(g.league);
   const buildingCard = (b: (typeof BUILDINGS)[number]): string => {
     const lvl = buildingLevel(g, b.id);
     const cost = upgradeCost(g, b.id);
@@ -374,6 +380,14 @@ function renderSettlement(): void {
       </div>
     </div>
 
+    <div class="panel league-strip" id="league-strip">
+      <div>
+        <div class="eyebrow">${esc(div.name)} · fee ${Math.round(div.feePct * 100)}%</div>
+        <div class="league-strip__rank">Rank <b>#${rank}</b> of ${g.league.clubs.length}</div>
+      </div>
+      <button id="view-standings">${icon("star")} League table</button>
+    </div>
+
     <div class="pit-panel" id="pit">
       <div class="pit-void"></div>
       <div class="pit-copy">
@@ -405,6 +419,12 @@ function renderSettlement(): void {
     e.stopPropagation();
     startRun();
   });
+  document.getElementById("view-standings")!.addEventListener("click", (e) => {
+    e.stopPropagation();
+    standingsReturnPhase = "settlement";
+    phase = "standings";
+    render();
+  });
   app.querySelectorAll<HTMLElement>("[data-up]").forEach((b) => {
     b.addEventListener("click", () => {
       if (doUpgrade(guild, b.dataset.up as never)) {
@@ -420,6 +440,68 @@ function startRun(): void {
   run = new Run(undefined, guild.name ?? "The Gordion Pit");
   phase = "draft";
   render();
+}
+
+// ---------------------------------------------------------------- league standings
+
+function formPips(c: ClubStanding): string {
+  if (!c.form.length) return `<span class="sub">— no fixtures yet —</span>`;
+  return c.form.map((r) => `<span class="formpip formpip--${r === "W" ? "w" : "l"}">${r}</span>`).join("");
+}
+
+function renderStandings(): void {
+  const div = divisionOf(guild.league);
+  const table = standings(guild.league);
+  const rank = playerRank(guild.league);
+
+  app.innerHTML = `
+  <div class="wrap col">
+    <div class="spread">
+      <div><div class="eyebrow">The League</div><h1>${esc(div.name)}</h1></div>
+      <span class="sub">Division ${div.tier} of ${4} · league fee ${Math.round(div.feePct * 100)}% of gold earned per fixture</span>
+    </div>
+
+    <div class="panel statrow">
+      ${stat("star", `#${rank} of ${table.length}`, rank <= 2 ? "good" : rank >= table.length - 1 ? "bad" : "", "your rank")}
+      ${stat("loot", `${guild.gold}g`, "gold", "treasury")}
+      ${stat("check", table.find((c) => c.isPlayer)?.clears ?? 0, "", "career clears")}
+    </div>
+
+    <div class="standings-wrap">
+      <table class="standings">
+        <thead><tr>
+          <th>#</th><th>Club</th><th>Clears</th><th>Gold</th><th>Net</th><th>Fee</th><th>Pts</th><th>Squad</th><th>Form</th>
+        </tr></thead>
+        <tbody>
+          ${table
+            .map((c, i) => {
+              const rankTone = i === 0 ? "rank-gold" : i === 1 || i === 2 ? "rank-good" : i >= table.length - 2 ? "rank-bad" : "";
+              return `
+              <tr class="${c.isPlayer ? "standings__row--me" : ""}">
+                <td class="mono ${rankTone}">${i + 1}</td>
+                <td class="standings__club">${c.isPlayer ? `<span class="pill" style="color:var(--gold);border-color:var(--gold)">YOU</span> ` : ""}${esc(c.name)}</td>
+                <td class="mono">${c.clears}</td>
+                <td class="mono">${c.goldEarned}g</td>
+                <td class="mono" style="color:var(--good)">${c.netGold}g</td>
+                <td class="mono" style="color:var(--bad)">−${c.feePaid}g</td>
+                <td class="mono">${c.points}</td>
+                <td class="mono">${c.squadHealth}</td>
+                <td class="formrow">${formPips(c)}</td>
+              </tr>`;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+    <p class="sub">Ranked by clears, then gold earned, then net gold after the league fee, then squad health, then reputation. Fixtures resolve once per run — every rival's row moves the moment you finish yours.</p>
+
+    <div class="row"><button class="primary" id="standings-back">${icon("chevron")} Back</button></div>
+  </div>`;
+
+  document.getElementById("standings-back")!.addEventListener("click", () => {
+    phase = standingsReturnPhase;
+    render();
+  });
 }
 
 // ---------------------------------------------------------------- draft
@@ -1131,9 +1213,18 @@ function finishRun(): void {
   if (!run) return;
   const st = run.state;
   const outcome = st.outcome ?? "wipe";
+  const cleared = outcome === "retired";
+  const { fee, net } = recordFixture(guild.league, {
+    cleared,
+    floorsCleared: st.depth,
+    goldEarned: st.bankedGold,
+    squadHealth: st.party.length,
+    reputation: guild.renown,
+  });
+  fixtureResult = { cleared, gross: st.bankedGold, fee, net };
   recordRun(
     guild,
-    { seed: st.seed, depth: st.depth, outcome, banked: st.bankedGold, party: st.party.map((c) => c.name) },
+    { seed: st.seed, depth: st.depth, outcome, banked: st.bankedGold, fee, net, party: st.party.map((c) => c.name) },
     st.graveyard,
   );
   applyGuildToConfig(guild);
@@ -1146,26 +1237,50 @@ function renderDebrief(): void {
   if (!run) return;
   const st = run.state;
   const retired = st.outcome === "retired";
+  const fx = fixtureResult;
+  const div = divisionOf(guild.league);
+  const rank = playerRank(guild.league);
   app.innerHTML = `
   <div class="wrap center col">
     <div><div class="eyebrow">${retired ? "Extraction" : "Wipe"}</div><h1>${retired ? "The warband retires" : "The Deep keeps them"}</h1></div>
     <div class="panel col">
       <div class="statrow">
         ${stat("chevron", `Deep ${st.depth}`, "", "reached")}
-        ${stat("check", `+${st.bankedGold}g`, "gold", "to the treasury")}
+        ${stat("check", `+${st.bankedGold}g`, "gold", "gross earned")}
         ${!retired ? stat("loot", `${st.gold}g`, "bad", "lost with the bodies") : ""}
       </div>
-      <p class="sub">${retired ? `Everyone got out.${report ? ` Retirement bonus +${report.loot}g.` : ""}` : `Only what was banked at a shaft made it up.`}
-      Treasury now <b>${guild.gold}g</b>.</p>
+      <p class="sub">${retired ? `Everyone got out.${report ? ` Retirement bonus +${report.loot}g.` : ""}` : `Only what was banked at a shaft made it up.`}</p>
       ${st.graveyard.length ? `<h3>Fallen this run</h3><div class="col" style="gap:6px">${st.graveyard.map((x) => `<div class="grave"><div class="n">${esc(x.name)} · Deep ${x.depth}</div><div class="e">${esc(x.epitaph)}</div><div class="sub">${esc(x.cause)}</div></div>`).join("")}</div>` : ""}
     </div>
-    <div class="row"><button class="primary" id="home">${icon("extract")} Back to the Pit</button></div>
+
+    ${fx ? `
+    <div class="panel col league-fixture">
+      <div class="eyebrow">${esc(div.name)} — fixture result</div>
+      <div class="statrow">
+        ${stat(fx.cleared ? "check" : "skull", fx.cleared ? "CLEAR" : "LOSS", fx.cleared ? "good" : "bad", "fixture outcome")}
+        ${stat("loot", `${fx.gross}g`, "gold", "gross earned")}
+        ${stat("loot", `−${fx.fee}g`, "bad", `league fee (${Math.round(div.feePct * 100)}%)`)}
+        ${stat("check", `+${fx.net}g`, "good", "net to treasury")}
+      </div>
+      <p class="sub">Treasury now <b>${guild.gold}g</b>. League rank: <b>#${rank}</b> of ${guild.league.clubs.length}.</p>
+    </div>` : ""}
+
+    <div class="row">
+      <button class="primary" id="home">${icon("extract")} Back to the Pit</button>
+      <button id="debrief-standings">${icon("star")} League table</button>
+    </div>
   </div>`;
   document.getElementById("home")!.addEventListener("click", () => {
     run = null;
     enc = null;
     report = null;
+    fixtureResult = null;
     phase = "settlement";
+    render();
+  });
+  document.getElementById("debrief-standings")!.addEventListener("click", () => {
+    standingsReturnPhase = "debrief";
+    phase = "standings";
     render();
   });
 }
@@ -1187,7 +1302,35 @@ function maybeDevJump(): boolean {
   if (d === "settle") {
     guild.name = guild.name ?? "Dev Pit";
     guild.gold = 9000;
+    const player0 = guild.league.clubs.find((c) => c.isPlayer);
+    if (player0) player0.name = guild.name;
     phase = "settlement";
+    return true;
+  }
+  if (d === "standings") {
+    guild.name = guild.name ?? "Dev Pit";
+    const player1 = guild.league.clubs.find((c) => c.isPlayer);
+    if (player1) player1.name = guild.name;
+    standingsReturnPhase = "settlement";
+    phase = "standings";
+    return true;
+  }
+  if (d === "debrief") {
+    guild.name = guild.name ?? "Dev Pit";
+    applyGuildToConfig(guild);
+    const player2 = guild.league.clubs.find((c) => c.isPlayer);
+    if (player2) player2.name = guild.name;
+    run = new Run(p.get("seed") || "debrief-seed", guild.name);
+    while (!run.draftComplete) run.pickRecruit(run.pool[0].id);
+    run.beginDescent();
+    run.state.gold = 240;
+    if (p.get("wipe")) {
+      run.state.over = true;
+      run.state.outcome = "wipe";
+    } else {
+      run.retire();
+    }
+    finishRun();
     return true;
   }
   if (d === "sheet") {

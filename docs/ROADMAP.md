@@ -60,6 +60,7 @@ Goal: the full run→spend→run cycle.
 - [ ] Barracks: Hall of the Dead (obituaries + cause of death), Legends, Records, Run History.
 - [ ] Multiclass + subclass UI (Admission Requirements: stat/skill/trait gates), feats, per-class ASI cadence.
 - [ ] Rest Site / Market / Shrine floors.
+- [~] **The League** — reframes the run as a fixture in a competitive circuit (`game/league.ts`): a division (Salvage Rounds → Prospect Wards → Lower Pit Circuit → Deep Vault League) takes a fee off each fixture's gold before it hits the treasury; a standings table ranks the club against 5 lightly-simulated rival clubs by clears → gold → net gold → squad health → reputation. Leveling stays purely combat-based — the league never grants XP, it only ranks. Shipped: fee + standings + fixture reporting on the Settlement and Debrief screens. **Not yet:** recruitment market, team disbandment, promotion/relegation between divisions (the club is parked in the entry division for now).
 - [ ] **Playtest gate:** do you want to start another run the moment one ends?
 
 ## Phase 4 — Depth & feel

@@ -346,3 +346,84 @@ describe("full run simulation", () => {
     }
   });
 });
+
+describe("league", () => {
+  it("initLeague seeds one player club plus five rivals", async () => {
+    const { initLeague } = await import("../game/league");
+    const league = initLeague("Test Club");
+    expect(league.clubs.length).toBe(6);
+    const player = league.clubs.filter((c) => c.isPlayer);
+    expect(player.length).toBe(1);
+    expect(player[0].name).toBe("Test Club");
+    expect(new Set(league.clubs.map((c) => c.id)).size).toBe(6); // unique ids
+  });
+
+  it("recordFixture deducts the division's fee and credits clears/points on a clear", async () => {
+    const { initLeague, recordFixture, divisionOf } = await import("../game/league");
+    const league = initLeague("Fee Test");
+    const div = divisionOf(league);
+    const { fee, net } = recordFixture(league, {
+      cleared: true,
+      floorsCleared: 5,
+      goldEarned: 400,
+      squadHealth: 3,
+      reputation: 10,
+    });
+    expect(fee).toBe(Math.round(400 * div.feePct));
+    expect(net).toBe(400 - fee);
+    const player = league.clubs.find((c) => c.isPlayer)!;
+    expect(player.clears).toBe(1);
+    expect(player.losses).toBe(0);
+    expect(player.goldEarned).toBe(400);
+    expect(player.feePaid).toBe(fee);
+    expect(player.netGold).toBe(net);
+    expect(player.points).toBe(3);
+    expect(player.form).toEqual(["W"]);
+    // every rival should also have rolled a fixture this round
+    for (const c of league.clubs) {
+      if (c.isPlayer) continue;
+      expect(c.form.length).toBe(1);
+    }
+  });
+
+  it("a loss records no clear and no points, but still pays a fee on whatever gold was earned", async () => {
+    const { initLeague, recordFixture } = await import("../game/league");
+    const league = initLeague("Loss Test");
+    const { fee, net } = recordFixture(league, {
+      cleared: false,
+      floorsCleared: 2,
+      goldEarned: 50,
+      squadHealth: 1,
+      reputation: 0,
+    });
+    const player = league.clubs.find((c) => c.isPlayer)!;
+    expect(player.clears).toBe(0);
+    expect(player.losses).toBe(1);
+    expect(player.points).toBe(0);
+    expect(player.form).toEqual(["L"]);
+    expect(fee + net).toBe(50);
+  });
+
+  it("standings rank by clears first, then gold, then net gold, then squad, then reputation", async () => {
+    const { standings } = await import("../game/league");
+    const league = {
+      divisionId: "salvage",
+      round: 0,
+      clubs: [
+        { id: "a", name: "More clears, less gold", isPlayer: false, strength: 0.5, clears: 3, losses: 0, floorsCleared: 10, goldEarned: 100, feePaid: 10, netGold: 90, points: 9, squadHealth: 3, reputation: 3, form: [] },
+        { id: "b", name: "Fewer clears, more gold", isPlayer: false, strength: 0.5, clears: 1, losses: 0, floorsCleared: 5, goldEarned: 900, feePaid: 90, netGold: 810, points: 3, squadHealth: 5, reputation: 5, form: [] },
+      ],
+    };
+    const ranked = standings(league);
+    expect(ranked[0].id).toBe("a"); // clears beat gold, exactly per the design's ranking priority
+    expect(ranked[1].id).toBe("b");
+  });
+
+  it("fee tiers rise with division prestige (tier 4 cheapest, tier 1 dearest)", async () => {
+    const { DIVISIONS } = await import("../game/league");
+    const byTier = [...DIVISIONS].sort((a, b) => a.tier - b.tier);
+    for (let i = 1; i < byTier.length; i++) {
+      expect(byTier[i].feePct).toBeLessThan(byTier[i - 1].feePct);
+    }
+  });
+});

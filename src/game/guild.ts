@@ -3,6 +3,7 @@
  * Founded once, upgraded between runs, kept in localStorage.
  */
 import { RUN_CONFIG, resetConfig } from "./config";
+import { initLeague, LeagueState } from "./league";
 
 export type BuildingId =
   | "recruitment" | "barracks" | "training" | "pedigree" | "vault" | "infirmary" | "smithy";
@@ -18,13 +19,18 @@ export interface MetaRun {
   seed: string;
   depth: number;
   outcome: "wipe" | "retired";
+  /** gross gold the run banked, before the league fee */
   banked: number;
+  /** league fee taken off that fixture's gold */
+  fee: number;
+  /** what actually landed in the treasury after the fee */
+  net: number;
   party: string[];
   when: number;
 }
 
 export interface Guild {
-  version: 2;
+  version: 3;
   name: string | null; // null → not yet founded
   sigil: string;
   gold: number;
@@ -38,6 +44,8 @@ export interface Guild {
   totalBanked: number;
   retires: number;
   founded: number;
+  /** the club's standing in the dungeon league — see game/league.ts */
+  league: LeagueState;
 }
 
 export interface Building {
@@ -137,7 +145,7 @@ const LEGACY = "gordion-meta-v1";
 
 function blankGuild(): Guild {
   return {
-    version: 2,
+    version: 3,
     name: null,
     sigil: SIGILS[0],
     gold: 0,
@@ -151,13 +159,14 @@ function blankGuild(): Guild {
     totalBanked: 0,
     retires: 0,
     founded: 0,
+    league: initLeague("Unnamed Club"),
   };
 }
 
 export function loadGuild(): Guild {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...blankGuild(), ...JSON.parse(raw), version: 2 };
+    if (raw) return { ...blankGuild(), ...JSON.parse(raw), version: 3 };
   } catch {
     /* ignore */
   }
@@ -195,6 +204,8 @@ export function foundGuild(g: Guild, name: string, sigil: string): void {
   g.sigil = sigil;
   g.founded = Date.now();
   g.gold += 200; // founding grant
+  const player = g.league.clubs.find((c) => c.isPlayer);
+  if (player) player.name = g.name;
   saveGuild(g);
 }
 
@@ -243,7 +254,7 @@ export function applyGuildToConfig(g: Guild): void {
 
 export function recordRun(
   g: Guild,
-  run: { seed: string; depth: number; outcome: "wipe" | "retired"; banked: number; party: string[] },
+  run: { seed: string; depth: number; outcome: "wipe" | "retired"; banked: number; fee: number; net: number; party: string[] },
   graves: Grave[],
 ): void {
   g.runs.unshift({ ...run, when: Date.now() });
@@ -253,7 +264,7 @@ export function recordRun(
   g.bestDepth = Math.max(g.bestDepth, run.depth);
   g.bestBanked = Math.max(g.bestBanked, run.banked);
   g.totalBanked += Math.max(0, run.banked);
-  g.gold += Math.max(0, run.banked);
+  g.gold += Math.max(0, run.net);
   if (run.outcome === "retired") {
     g.retires += 1;
     g.renown += 5 + run.depth;
